@@ -1,7 +1,8 @@
 # reboot_dialog.ps1
 # WinForms reboot dialog - runs in the user's interactive session.
 # Called by schedule_reboot.ps1 via a scheduled task.
-# Auto-restarts when the countdown reaches zero. Close button is disabled.
+# Writes the desired restart time to a flag file; the SYSTEM watcher task
+# in schedule_reboot.ps1 polls the file and issues the actual shutdown.
 
 [void][Reflection.Assembly]::Load('System.Windows.Forms, Version=2.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089')
 [void][Reflection.Assembly]::Load('System.Drawing, Version=2.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a')
@@ -9,8 +10,8 @@
 
 $Win_Heading  = "Neustart erforderlich"
 $Win_Body     = "Ihr Computer muss aufgrund von Updates neu gestartet werden. Bitte speichern Sie offene Dokumente bevor der Computer heruntergefahren wird."
-$TotalTime    = 300   # seconds until forced restart if no button is clicked
-$FlagPath     = "C:\Windows\Temp\syncro_reboot_soon.flag"
+$TotalTime    = 1800  # seconds until auto-restart if no button is clicked (30 min)
+$FlagPath     = "C:\Windows\Temp\syncro_reboot_time.flag"
 $LogoUrl      = "https://raw.githubusercontent.com/it-factory-ag/syncroMSP-scripts/main/maintenance/it_factory_logo200x58.png"
 $LogoPath     = "C:\Windows\Temp\ifa_logo.png"
 
@@ -46,20 +47,23 @@ $timer_Tick = {
     [TimeSpan]$span = $script:StartTime - (Get-Date)
     if ($span.TotalSeconds -le 0) {
         $timer.Stop()
-        Set-Content -Path $FlagPath -Value "1" -Encoding ASCII
+        # Countdown expired: write "now" as target so watcher reboots on its next tick
+        Set-Content -Path $FlagPath -Value (Get-Date).ToString("o") -Encoding ASCII
         $MainForm.Close()
     } else {
         $lblCd.Text = "{0:00}:{1:00}:{2:00}" -f $span.Hours, $span.Minutes, $span.Seconds
     }
 }
 
-# Write flag file so the SYSTEM watcher task in schedule_reboot.ps1 triggers the actual reboot
+# Write target restart time to flag file; SYSTEM watcher issues the actual shutdown
 $btnNow.add_Click({
-    Set-Content -Path $FlagPath -Value "1" -Encoding ASCII
+    Set-Content -Path $FlagPath -Value (Get-Date).AddMinutes(5).ToString("o") -Encoding ASCII
     $MainForm.Close()
 })
-# "In 6 Stunden": just close - the SYSTEM-scheduled 6h fallback handles it
-$btn6h.add_Click({ $MainForm.Close() })
+$btn6h.add_Click({
+    Set-Content -Path $FlagPath -Value (Get-Date).AddHours(6).ToString("o") -Encoding ASCII
+    $MainForm.Close()
+})
 
 $timer.Interval = 1000
 $timer.add_Tick($timer_Tick)
@@ -78,7 +82,7 @@ $MainForm.BackColor       = $clrWhite
 $MainForm.ShowIcon        = $false
 $MainForm.ShowInTaskbar   = $false
 
-# ── Header panel (blue) ───────────────────────────────────────────────────────
+# ── Header panel ──────────────────────────────────────────────────────────────
 $panelHeader.BackColor = $clrWhite
 $panelHeader.Location  = New-Object System.Drawing.Point(0, 0)
 $panelHeader.Size      = New-Object System.Drawing.Size(440, 75)
@@ -101,7 +105,7 @@ try {
     $panelHeader.Controls.Add($picLogo)
 } catch {}
 
-# ── Body panel (white) ────────────────────────────────────────────────────────
+# ── Body panel ────────────────────────────────────────────────────────────────
 $panelBody.BackColor = $clrWhite
 $panelBody.Location  = New-Object System.Drawing.Point(0, 75)
 $panelBody.Size      = New-Object System.Drawing.Size(440, 155)
@@ -121,14 +125,14 @@ $lblCdLabel.Location  = New-Object System.Drawing.Point(20, 88)
 $lblCdLabel.AutoSize  = $true
 $panelBody.Controls.Add($lblCdLabel)
 
-$lblCd.Text      = "00:05:00"
+$lblCd.Text      = "00:30:00"
 $lblCd.Font      = New-Object System.Drawing.Font("Segoe UI", 18, [System.Drawing.FontStyle]::Bold)
 $lblCd.ForeColor = $clrRed
 $lblCd.Location  = New-Object System.Drawing.Point(230, 78)
 $lblCd.AutoSize  = $true
 $panelBody.Controls.Add($lblCd)
 
-# ── Footer panel (light gray) ─────────────────────────────────────────────────
+# ── Footer panel ──────────────────────────────────────────────────────────────
 $panelFooter.BackColor = $clrGray
 $panelFooter.Location  = New-Object System.Drawing.Point(0, 230)
 $panelFooter.Size      = New-Object System.Drawing.Size(440, 80)
@@ -139,12 +143,12 @@ $borderLine.Location  = New-Object System.Drawing.Point(0, 0)
 $borderLine.Size      = New-Object System.Drawing.Size(440, 1)
 $panelFooter.Controls.Add($borderLine)
 
-$btnNow.Text      = "In 5 Min. neu starten"
+$btnNow.Text      = "In 5 Minuten"
 $btnNow.BackColor = $clrRed
 $btnNow.ForeColor = $clrWhite
 $btnNow.Font      = New-Object System.Drawing.Font("Segoe UI", 9, [System.Drawing.FontStyle]::Bold)
-$btnNow.Location  = New-Object System.Drawing.Point(100, 20)
-$btnNow.Size      = New-Object System.Drawing.Size(145, 36)
+$btnNow.Location  = New-Object System.Drawing.Point(90, 20)
+$btnNow.Size      = New-Object System.Drawing.Size(140, 36)
 $btnNow.FlatStyle = "Flat"
 $btnNow.FlatAppearance.BorderSize = 0
 $panelFooter.Controls.Add($btnNow)
@@ -155,7 +159,7 @@ $btn6h.ForeColor = $clrTextDark
 $btn6h.BackColor = $clrWhite
 $btn6h.FlatStyle = "Flat"
 $btn6h.FlatAppearance.BorderColor = $clrDarkGray
-$btn6h.Location  = New-Object System.Drawing.Point(255, 20)
+$btn6h.Location  = New-Object System.Drawing.Point(245, 20)
 $btn6h.Size      = New-Object System.Drawing.Size(130, 36)
 $panelFooter.Controls.Add($btn6h)
 
