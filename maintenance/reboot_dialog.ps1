@@ -10,10 +10,13 @@
 $Win_Heading  = "Neustart erforderlich"
 $Win_Body     = "Ihr Computer muss fuer Sicherheitswartungen neu gestartet werden.`n`nBitte speichern Sie Ihre Arbeit. Der Neustart erfolgt automatisch wenn der Countdown ablaeuft."
 $TotalTime    = 1800  # seconds until forced restart if no button is clicked
+$LogoUrl      = "https://raw.githubusercontent.com/it-factory-ag/syncroMSP-scripts/main/maintenance/it_factory_logo200x58.png"
+$LogoPath     = "C:\Windows\Temp\ifa_logo.png"
 
 $MainForm             = New-Object System.Windows.Forms.Form
 $panel1               = New-Object System.Windows.Forms.Panel
 $panel2               = New-Object System.Windows.Forms.Panel
+$picLogo              = New-Object System.Windows.Forms.PictureBox
 $labelHeading         = New-Object System.Windows.Forms.Label
 $labelBody            = New-Object System.Windows.Forms.Label
 $labelCountdownLabel  = New-Object System.Windows.Forms.Label
@@ -66,14 +69,25 @@ $MainForm.ShowInTaskbar       = $false
 $panel1.BackColor   = [System.Drawing.Color]::FromArgb(0, 114, 198)
 $panel1.Location    = New-Object System.Drawing.Point(0, 0)
 $panel1.Size        = New-Object System.Drawing.Size(400, 67)
-$panel1.Controls.Add($labelHeading)
+
+# Logo (right side of header) - graceful fallback if webp not supported
+try {
+    (New-Object System.Net.WebClient).DownloadFile($LogoUrl, $LogoPath)
+    $picLogo.Image    = [System.Drawing.Image]::FromFile($LogoPath)
+    $picLogo.SizeMode = [System.Windows.Forms.PictureBoxSizeMode]::Zoom
+    $picLogo.Location = New-Object System.Drawing.Point(188, 5)
+    $picLogo.Size     = New-Object System.Drawing.Size(200, 58)
+    $picLogo.BackColor = [System.Drawing.Color]::FromArgb(0, 114, 198)
+    $panel1.Controls.Add($picLogo)
+} catch {}
 
 $labelHeading.Text      = $Win_Heading
-$labelHeading.Font      = New-Object System.Drawing.Font("Microsoft Sans Serif", 14, [System.Drawing.FontStyle]::Regular)
+$labelHeading.Font      = New-Object System.Drawing.Font("Microsoft Sans Serif", 12, [System.Drawing.FontStyle]::Regular)
 $labelHeading.ForeColor = [System.Drawing.Color]::White
 $labelHeading.Location  = New-Object System.Drawing.Point(12, 18)
-$labelHeading.Size      = New-Object System.Drawing.Size(370, 30)
+$labelHeading.Size      = New-Object System.Drawing.Size(175, 30)
 $labelHeading.TextAlign = "MiddleLeft"
+$panel1.Controls.Add($labelHeading)
 
 # Body text
 $labelBody.Text      = $Win_Body
