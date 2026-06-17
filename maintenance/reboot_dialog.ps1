@@ -9,7 +9,7 @@
 [System.Windows.Forms.Application]::EnableVisualStyles()
 
 $Win_Heading  = "Neustart erforderlich"
-$Win_Body     = "Ihr Computer wird aufgrund von Updates in 30 Minuten automatisch neu gestartet. Wenn Sie den Neustart jetzt durchführen möchten, klicken Sie auf 'In 5 Minuten neu starten' ansonsten können Sie den Neustart mit 'In 6 Stunden neu starten' verschieben. Bitte speichern Sie offene Dokumente, bevor der Computer heruntergefahren wird."
+$Win_Body     = "Ihr Computer wird aufgrund von Updates neu gestartet. Bitte speichern Sie Ihre offenen Dokumente."
 $TotalTime    = 1800  # seconds until auto-restart if no button is clicked (30 min)
 $FlagPath     = "C:\Windows\Temp\syncro_reboot_time.flag"
 $LogoUrl      = "https://raw.githubusercontent.com/it-factory-ag/syncroMSP-scripts/main/maintenance/it_factory_logo200x58.png"
@@ -114,21 +114,21 @@ $lblBody.Text      = $Win_Body
 $lblBody.Font      = New-Object System.Drawing.Font("Segoe UI", 10)
 $lblBody.ForeColor = $clrTextDark
 $lblBody.Location  = New-Object System.Drawing.Point(20, 18)
-$lblBody.Size      = New-Object System.Drawing.Size(400, 55)
+$lblBody.Size      = New-Object System.Drawing.Size(400, 65)
 $panelBody.Controls.Add($lblBody)
 
 # Countdown box
 $lblCdLabel.Text      = "Automatischer Neustart in"
 $lblCdLabel.Font      = New-Object System.Drawing.Font("Segoe UI", 9)
 $lblCdLabel.ForeColor = [System.Drawing.Color]::FromArgb(100, 100, 100)
-$lblCdLabel.Location  = New-Object System.Drawing.Point(20, 88)
+$lblCdLabel.Location  = New-Object System.Drawing.Point(20, 100)
 $lblCdLabel.AutoSize  = $true
 $panelBody.Controls.Add($lblCdLabel)
 
 $lblCd.Text      = "00:30:00"
 $lblCd.Font      = New-Object System.Drawing.Font("Segoe UI", 18, [System.Drawing.FontStyle]::Bold)
 $lblCd.ForeColor = $clrRed
-$lblCd.Location  = New-Object System.Drawing.Point(230, 78)
+$lblCd.Location  = New-Object System.Drawing.Point(230, 90)
 $lblCd.AutoSize  = $true
 $panelBody.Controls.Add($lblCd)
 
