@@ -35,10 +35,9 @@ if ($report) {
 }
 $xml = Get-ChildItem $reportDir -Filter "*.xml" | Select-Object -First 1
 if ($xml) {
-    [xml]$doc = Get-Content $xml.FullName
-    $doc.HPIARESULTS.SOFTPAQ | ForEach-Object {
-        Write-Host "  [$($_.STATUS)] $($_.NAME) - $($_.NOTES)"
-    }
+    Write-Host "--- HPIA XML report ---"
+    Get-Content $xml.FullName | Write-Host
+    Write-Host "---"
 }
 
 Write-Host "Cleaning up..."
