@@ -9,7 +9,7 @@
 [System.Windows.Forms.Application]::EnableVisualStyles()
 
 $Win_Heading  = "Neustart erforderlich"
-$Win_Body     = "Ihr Computer muss aufgrund von Updates neu gestartet werden. Bitte speichern Sie offene Dokumente bevor der Computer heruntergefahren wird."
+$Win_Body     = "Ihr Computer wird aufgrund von Updates in 30 Minuten automatisch neu gestartet. Wenn Sie den Neustart jetzt durchführen möchten, klicken Sie auf 'In 5 Minuten neu starten' ansonsten können Sie den Neustart mit 'In 6 Stunden neu starten' verschieben. Bitte speichern Sie offene Dokumente, bevor der Computer heruntergefahren wird."
 $TotalTime    = 1800  # seconds until auto-restart if no button is clicked (30 min)
 $FlagPath     = "C:\Windows\Temp\syncro_reboot_time.flag"
 $LogoUrl      = "https://raw.githubusercontent.com/it-factory-ag/syncroMSP-scripts/main/maintenance/it_factory_logo200x58.png"
@@ -143,7 +143,7 @@ $borderLine.Location  = New-Object System.Drawing.Point(0, 0)
 $borderLine.Size      = New-Object System.Drawing.Size(440, 1)
 $panelFooter.Controls.Add($borderLine)
 
-$btnNow.Text      = "In 5 Minuten"
+$btnNow.Text      = "In 5 Minuten neu starten"
 $btnNow.BackColor = $clrRed
 $btnNow.ForeColor = $clrWhite
 $btnNow.Font      = New-Object System.Drawing.Font("Segoe UI", 9, [System.Drawing.FontStyle]::Bold)
@@ -153,7 +153,7 @@ $btnNow.FlatStyle = "Flat"
 $btnNow.FlatAppearance.BorderSize = 0
 $panelFooter.Controls.Add($btnNow)
 
-$btn6h.Text      = "In 6 Stunden"
+$btn6h.Text      = "In 6 Stunden neu starten"
 $btn6h.Font      = New-Object System.Drawing.Font("Segoe UI", 9)
 $btn6h.ForeColor = $clrTextDark
 $btn6h.BackColor = $clrWhite
