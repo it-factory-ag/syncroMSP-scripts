@@ -45,23 +45,19 @@ $timer_Tick = {
     [TimeSpan]$span = $script:StartTime - (Get-Date)
     if ($span.TotalSeconds -le 0) {
         $timer.Stop()
-        Start-Process -FilePath "shutdown.exe" -ArgumentList "/r /t 0 /f"
+        (Get-WmiObject -Class Win32_OperatingSystem -EnableAllPrivileges).Win32Shutdown(6)
         $MainForm.Close()
     } else {
         $lblCd.Text = "{0:00}:{1:00}:{2:00}" -f $span.Hours, $span.Minutes, $span.Seconds
     }
 }
 
-function Invoke-Shutdown($seconds) {
-    $psi = New-Object System.Diagnostics.ProcessStartInfo
-    $psi.FileName        = "C:\Windows\System32\shutdown.exe"
-    $psi.Arguments       = "/r /t $seconds /f"
-    $psi.UseShellExecute = $true
-    [System.Diagnostics.Process]::Start($psi) | Out-Null
-}
-
-$btnNow.add_Click({ Invoke-Shutdown 0; $MainForm.Close() })
-$btn6h.add_Click({ Invoke-Shutdown 21600; $MainForm.Close() })
+$btnNow.add_Click({
+    (Get-WmiObject -Class Win32_OperatingSystem -EnableAllPrivileges).Win32Shutdown(6)
+    $MainForm.Close()
+})
+# "In 6 Stunden": just close - the SYSTEM-scheduled fallback in schedule_reboot.ps1 handles the 6h reboot
+$btn6h.add_Click({ $MainForm.Close() })
 
 $timer.Interval = 1000
 $timer.add_Tick($timer_Tick)
