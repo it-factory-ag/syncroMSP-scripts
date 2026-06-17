@@ -6,10 +6,11 @@ $workDir    = 'C:\_admin\HPIA'
 $installer  = "$workDir\hpia.exe"
 $extractDir = "$workDir\inst"
 $softpaqDir = "$workDir\SWSETUP"
+$reportDir  = "$workDir\report"
 
 # Clean up any previous run and recreate dirs
 Remove-Item $workDir -Recurse -Force -ErrorAction SilentlyContinue
-New-Item -ItemType Directory -Force -Path $workDir, $extractDir, $softpaqDir | Out-Null
+New-Item -ItemType Directory -Force -Path $workDir, $extractDir, $softpaqDir, $reportDir | Out-Null
 
 Write-Host "Downloading HP Image Assistant..."
 (New-Object System.Net.WebClient).DownloadFile($hpiaUrl, $installer)
@@ -24,8 +25,21 @@ if (-not (Test-Path $hpia)) {
 }
 
 Write-Host "Running HP Image Assistant (install all updates)..."
-$proc = Start-Process -Wait -PassThru -FilePath $hpia -ArgumentList "/Operation:Analyze /Category:All /Selection:All /Action:Install /SoftpaqDownloadFolder:`"$softpaqDir`" /Silent /AutoCleanup"
+$proc = Start-Process -Wait -PassThru -FilePath $hpia -ArgumentList "/Operation:Analyze /Category:All /Selection:All /Action:Install /SoftpaqDownloadFolder:`"$softpaqDir`" /ReportFolder:`"$reportDir`" /Silent /AutoCleanup"
 Write-Host "HPIA exit code: $($proc.ExitCode)"
+
+# HPIA exit codes: 0=nothing to do, 1=installed ok, 2=install failed, 3=not HP platform, 4=download failed, 4096=no applicable softpaqs found
+$report = Get-ChildItem $reportDir -Filter "*.html" | Select-Object -First 1
+if ($report) {
+    Write-Host "Report: $($report.FullName)"
+}
+$xml = Get-ChildItem $reportDir -Filter "*.xml" | Select-Object -First 1
+if ($xml) {
+    [xml]$doc = Get-Content $xml.FullName
+    $doc.HPIARESULTS.SOFTPAQ | ForEach-Object {
+        Write-Host "  [$($_.STATUS)] $($_.NAME) - $($_.NOTES)"
+    }
+}
 
 Write-Host "Cleaning up..."
 Remove-Item $workDir -Recurse -Force -ErrorAction SilentlyContinue
