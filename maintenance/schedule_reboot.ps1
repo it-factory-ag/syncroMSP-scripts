@@ -8,7 +8,7 @@ Import-Module $env:SyncroModule -DisableNameChecking
 
 $dialogUrl    = "https://raw.githubusercontent.com/it-factory-ag/syncroMSP-scripts/main/maintenance/reboot_dialog.ps1"
 $scriptPath   = "C:\Windows\Temp\reboot_dialog.ps1"
-$hoursMax     = 8
+$hoursMax     = 6
 $secondsMax   = $hoursMax * 3600
 
 # Cancel any previously scheduled shutdown

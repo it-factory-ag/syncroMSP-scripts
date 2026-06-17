@@ -31,12 +31,8 @@ $lblHeading  = New-Object System.Windows.Forms.Label
 $lblBody     = New-Object System.Windows.Forms.Label
 $lblCdLabel  = New-Object System.Windows.Forms.Label
 $lblCd       = New-Object System.Windows.Forms.Label
-$lblPostpone = New-Object System.Windows.Forms.Label
 $btnNow      = New-Object System.Windows.Forms.Button
-$btn1h       = New-Object System.Windows.Forms.Button
-$btn2h       = New-Object System.Windows.Forms.Button
-$btn4h       = New-Object System.Windows.Forms.Button
-$btn8h       = New-Object System.Windows.Forms.Button
+$btn6h       = New-Object System.Windows.Forms.Button
 $timer       = New-Object System.Windows.Forms.Timer
 
 # Timer / load
@@ -56,10 +52,7 @@ $timer_Tick = {
 }
 
 $btnNow.add_Click({ Restart-Computer -Force })
-$btn1h.add_Click({ shutdown /r /t 3600 /f; $MainForm.Close() })
-$btn2h.add_Click({ shutdown /r /t 7200 /f; $MainForm.Close() })
-$btn4h.add_Click({ shutdown /r /t 14400 /f; $MainForm.Close() })
-$btn8h.add_Click({ shutdown /r /t 28800 /f; $MainForm.Close() })
+$btn6h.add_Click({ shutdown /r /t 21600 /f; $MainForm.Close() })
 
 $timer.Interval = 1000
 $timer.add_Tick($timer_Tick)
@@ -67,7 +60,7 @@ $MainForm.add_Load($MainForm_Load)
 
 # ── Main form ─────────────────────────────────────────────────────────────────
 $MainForm.Text            = ""
-$MainForm.ClientSize      = New-Object System.Drawing.Size(440, 370)
+$MainForm.ClientSize      = New-Object System.Drawing.Size(440, 310)
 $MainForm.StartPosition   = "CenterScreen"
 $MainForm.TopMost         = $true
 $MainForm.MaximizeBox     = $false
@@ -131,53 +124,33 @@ $panelBody.Controls.Add($lblCd)
 # ── Footer panel (light gray) ─────────────────────────────────────────────────
 $panelFooter.BackColor = $clrGray
 $panelFooter.Location  = New-Object System.Drawing.Point(0, 230)
-$panelFooter.Size      = New-Object System.Drawing.Size(440, 140)
+$panelFooter.Size      = New-Object System.Drawing.Size(440, 80)
 
-# Top border line on footer
 $borderLine = New-Object System.Windows.Forms.Label
 $borderLine.BackColor = $clrDarkGray
 $borderLine.Location  = New-Object System.Drawing.Point(0, 0)
 $borderLine.Size      = New-Object System.Drawing.Size(440, 1)
 $panelFooter.Controls.Add($borderLine)
 
-# Restart Now button
 $btnNow.Text      = "Jetzt neu starten"
 $btnNow.BackColor = $clrRed
 $btnNow.ForeColor = $clrWhite
 $btnNow.Font      = New-Object System.Drawing.Font("Segoe UI", 9, [System.Drawing.FontStyle]::Bold)
-$btnNow.Location  = New-Object System.Drawing.Point(155, 14)
-$btnNow.Size      = New-Object System.Drawing.Size(130, 36)
+$btnNow.Location  = New-Object System.Drawing.Point(100, 20)
+$btnNow.Size      = New-Object System.Drawing.Size(145, 36)
 $btnNow.FlatStyle = "Flat"
 $btnNow.FlatAppearance.BorderSize = 0
 $panelFooter.Controls.Add($btnNow)
 
-# Postpone label
-$lblPostpone.Text      = "Verschieben:"
-$lblPostpone.Font      = New-Object System.Drawing.Font("Segoe UI", 8)
-$lblPostpone.ForeColor = [System.Drawing.Color]::FromArgb(100, 100, 100)
-$lblPostpone.Location  = New-Object System.Drawing.Point(16, 66)
-$lblPostpone.AutoSize  = $true
-$panelFooter.Controls.Add($lblPostpone)
-
-# Postpone buttons
-$postponeBtnFont = New-Object System.Drawing.Font("Segoe UI", 8)
-$postponeBtns = @(
-    @{ btn = $btn1h; text = "1 Stunde";   x = 100 },
-    @{ btn = $btn2h; text = "2 Stunden";  x = 190 },
-    @{ btn = $btn4h; text = "4 Stunden";  x = 280 },
-    @{ btn = $btn8h; text = "8 Stunden";  x = 370 }
-)
-foreach ($b in $postponeBtns) {
-    $b.btn.Text      = $b.text
-    $b.btn.Font      = $postponeBtnFont
-    $b.btn.ForeColor = $clrTextDark
-    $b.btn.BackColor = $clrWhite
-    $b.btn.FlatStyle = "Flat"
-    $b.btn.FlatAppearance.BorderColor = $clrDarkGray
-    $b.btn.Location  = New-Object System.Drawing.Point($b.x, 58)
-    $b.btn.Size      = New-Object System.Drawing.Size(80, 30)
-    $panelFooter.Controls.Add($b.btn)
-}
+$btn6h.Text      = "In 6 Stunden"
+$btn6h.Font      = New-Object System.Drawing.Font("Segoe UI", 9)
+$btn6h.ForeColor = $clrTextDark
+$btn6h.BackColor = $clrWhite
+$btn6h.FlatStyle = "Flat"
+$btn6h.FlatAppearance.BorderColor = $clrDarkGray
+$btn6h.Location  = New-Object System.Drawing.Point(255, 20)
+$btn6h.Size      = New-Object System.Drawing.Size(130, 36)
+$panelFooter.Controls.Add($btn6h)
 
 $MainForm.Controls.AddRange(@($panelHeader, $panelBody, $panelFooter))
 $MainForm.ShowDialog()
