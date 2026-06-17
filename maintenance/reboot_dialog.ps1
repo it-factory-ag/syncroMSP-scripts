@@ -8,7 +8,7 @@
 [System.Windows.Forms.Application]::EnableVisualStyles()
 
 $Win_Heading  = "Neustart erforderlich"
-$Win_Body     = "Ihr Computer muss fuer Sicherheitswartungen neu gestartet werden. Bitte speichern Sie Ihre Arbeit jetzt."
+$Win_Body     = "Ihr Computer muss aufgrund von Updates neu gestartet werden. Bitte speichern Sie vor dem Neustart offene Dokumente."
 $TotalTime    = 1800  # seconds until forced restart if no button is clicked
 $LogoUrl      = "https://raw.githubusercontent.com/it-factory-ag/syncroMSP-scripts/main/maintenance/it_factory_logo200x58.png"
 $LogoPath     = "C:\Windows\Temp\ifa_logo.png"
@@ -45,13 +45,13 @@ $timer_Tick = {
     [TimeSpan]$span = $script:StartTime - (Get-Date)
     if ($span.TotalSeconds -le 0) {
         $timer.Stop()
-        Restart-Computer -Force
+        shutdown /r /t 0 /f
     } else {
         $lblCd.Text = "{0:00}:{1:00}:{2:00}" -f $span.Hours, $span.Minutes, $span.Seconds
     }
 }
 
-$btnNow.add_Click({ Restart-Computer -Force })
+$btnNow.add_Click({ shutdown /r /t 0 /f; $MainForm.Close() })
 $btn6h.add_Click({ shutdown /r /t 21600 /f; $MainForm.Close() })
 
 $timer.Interval = 1000
