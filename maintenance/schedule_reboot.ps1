@@ -32,9 +32,11 @@ if (-not $loggedInUser) {
 
 Write-Host "Logged-in user: $loggedInUser"
 
-# Download the dialog script
+# Download the dialog script and save with UTF-8 BOM so PowerShell reads umlauts correctly
 Write-Host "Downloading reboot dialog..."
-(New-Object System.Net.WebClient).DownloadFile($dialogUrl, $scriptPath)
+$dialogBytes = (New-Object System.Net.WebClient).DownloadData($dialogUrl)
+$bom = [System.Text.Encoding]::UTF8.GetPreamble()
+[System.IO.File]::WriteAllBytes($scriptPath, ($bom + $dialogBytes))
 
 # Clear any leftover flag from a previous run
 Remove-Item $flagPath -Force -ErrorAction SilentlyContinue
