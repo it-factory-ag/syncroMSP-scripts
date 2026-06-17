@@ -1,7 +1,7 @@
 Import-Module $env:SyncroModule -DisableNameChecking
 
 # Get the latest BCU softpaq URL from: https://ftp.ext.hp.com/pub/caps-softpaq/cmit/HP_BCU.html
-$bcuUrl  = 'https://ftp.hp.com/pub/softpaq/sp148501-149000/sp148977.exe'
+$bcuUrl  = 'https://ftp.hp.com/pub/softpaq/sp143501-144000/sp143621.exe'
 $workDir = 'C:\_admin\BCU'
 $installer = "$workDir\bcu.exe"
 $extractDir = "$workDir\inst"
