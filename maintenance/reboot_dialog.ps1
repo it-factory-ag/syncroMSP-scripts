@@ -8,26 +8,38 @@
 [System.Windows.Forms.Application]::EnableVisualStyles()
 
 $Win_Heading  = "Neustart erforderlich"
-$Win_Body     = "Ihr Computer muss fuer Sicherheitswartungen neu gestartet werden.`n`nBitte speichern Sie Ihre Arbeit. Der Neustart erfolgt automatisch wenn der Countdown ablaeuft."
+$Win_Body     = "Ihr Computer muss fuer Sicherheitswartungen neu gestartet werden. Bitte speichern Sie Ihre Arbeit jetzt."
 $TotalTime    = 1800  # seconds until forced restart if no button is clicked
 $LogoUrl      = "https://raw.githubusercontent.com/it-factory-ag/syncroMSP-scripts/main/maintenance/it_factory_logo200x58.png"
 $LogoPath     = "C:\Windows\Temp\ifa_logo.png"
 
-$MainForm             = New-Object System.Windows.Forms.Form
-$panel1               = New-Object System.Windows.Forms.Panel
-$panel2               = New-Object System.Windows.Forms.Panel
-$picLogo              = New-Object System.Windows.Forms.PictureBox
-$labelHeading         = New-Object System.Windows.Forms.Label
-$labelBody            = New-Object System.Windows.Forms.Label
-$labelCountdownLabel  = New-Object System.Windows.Forms.Label
-$labelCountdown       = New-Object System.Windows.Forms.Label
-$btnNow               = New-Object System.Windows.Forms.Button
-$btn1h                = New-Object System.Windows.Forms.Button
-$btn2h                = New-Object System.Windows.Forms.Button
-$btn4h                = New-Object System.Windows.Forms.Button
-$btn8h                = New-Object System.Windows.Forms.Button
-$timer                = New-Object System.Windows.Forms.Timer
+# Colors
+$clrBlue      = [System.Drawing.Color]::FromArgb(0, 114, 198)
+$clrRed       = [System.Drawing.Color]::FromArgb(210, 43, 43)
+$clrGray      = [System.Drawing.Color]::FromArgb(245, 245, 245)
+$clrDarkGray  = [System.Drawing.Color]::FromArgb(200, 200, 200)
+$clrTextDark  = [System.Drawing.Color]::FromArgb(40, 40, 40)
+$clrWhite     = [System.Drawing.Color]::White
 
+# Controls
+$MainForm    = New-Object System.Windows.Forms.Form
+$panelHeader = New-Object System.Windows.Forms.Panel
+$panelBody   = New-Object System.Windows.Forms.Panel
+$panelFooter = New-Object System.Windows.Forms.Panel
+$picLogo     = New-Object System.Windows.Forms.PictureBox
+$lblHeading  = New-Object System.Windows.Forms.Label
+$lblBody     = New-Object System.Windows.Forms.Label
+$lblCdLabel  = New-Object System.Windows.Forms.Label
+$lblCd       = New-Object System.Windows.Forms.Label
+$lblPostpone = New-Object System.Windows.Forms.Label
+$btnNow      = New-Object System.Windows.Forms.Button
+$btn1h       = New-Object System.Windows.Forms.Button
+$btn2h       = New-Object System.Windows.Forms.Button
+$btn4h       = New-Object System.Windows.Forms.Button
+$btn8h       = New-Object System.Windows.Forms.Button
+$timer       = New-Object System.Windows.Forms.Timer
+
+# Timer / load
 $MainForm_Load = {
     $script:StartTime = (Get-Date).AddSeconds($TotalTime)
     $timer.Start()
@@ -39,7 +51,7 @@ $timer_Tick = {
         $timer.Stop()
         Restart-Computer -Force
     } else {
-        $labelCountdown.Text = "{0:00}:{1:00}:{2:00}" -f $span.Hours, $span.Minutes, $span.Seconds
+        $lblCd.Text = "{0:00}:{1:00}:{2:00}" -f $span.Hours, $span.Minutes, $span.Seconds
     }
 }
 
@@ -49,96 +61,123 @@ $btn2h.add_Click({ shutdown /r /t 7200 /f; $MainForm.Close() })
 $btn4h.add_Click({ shutdown /r /t 14400 /f; $MainForm.Close() })
 $btn8h.add_Click({ shutdown /r /t 28800 /f; $MainForm.Close() })
 
+$timer.Interval = 1000
 $timer.add_Tick($timer_Tick)
 $MainForm.add_Load($MainForm_Load)
 
-# Main form
-$MainForm.Text                = ""
-$MainForm.ClientSize          = New-Object System.Drawing.Size(400, 340)
-$MainForm.StartPosition       = "CenterScreen"
-$MainForm.TopMost             = $true
-$MainForm.MaximizeBox         = $false
-$MainForm.MinimizeBox         = $false
-$MainForm.ControlBox          = $false
-$MainForm.FormBorderStyle     = [System.Windows.Forms.FormBorderStyle]::FixedDialog
-$MainForm.BackColor           = [System.Drawing.Color]::White
-$MainForm.ShowIcon            = $false
-$MainForm.ShowInTaskbar       = $false
+# ── Main form ─────────────────────────────────────────────────────────────────
+$MainForm.Text            = ""
+$MainForm.ClientSize      = New-Object System.Drawing.Size(440, 370)
+$MainForm.StartPosition   = "CenterScreen"
+$MainForm.TopMost         = $true
+$MainForm.MaximizeBox     = $false
+$MainForm.MinimizeBox     = $false
+$MainForm.ControlBox      = $false
+$MainForm.FormBorderStyle = [System.Windows.Forms.FormBorderStyle]::FixedSingle
+$MainForm.BackColor       = $clrWhite
+$MainForm.ShowIcon        = $false
+$MainForm.ShowInTaskbar   = $false
 
-# Blue header panel
-$panel1.BackColor   = [System.Drawing.Color]::FromArgb(0, 114, 198)
-$panel1.Location    = New-Object System.Drawing.Point(0, 0)
-$panel1.Size        = New-Object System.Drawing.Size(400, 67)
+# ── Header panel (blue) ───────────────────────────────────────────────────────
+$panelHeader.BackColor = $clrBlue
+$panelHeader.Location  = New-Object System.Drawing.Point(0, 0)
+$panelHeader.Size      = New-Object System.Drawing.Size(440, 75)
 
-# Logo (right side of header) - graceful fallback if webp not supported
+$lblHeading.Text      = $Win_Heading
+$lblHeading.Font      = New-Object System.Drawing.Font("Segoe UI", 13, [System.Drawing.FontStyle]::Regular)
+$lblHeading.ForeColor = $clrWhite
+$lblHeading.Location  = New-Object System.Drawing.Point(16, 22)
+$lblHeading.Size      = New-Object System.Drawing.Size(210, 30)
+$lblHeading.TextAlign = "MiddleLeft"
+$panelHeader.Controls.Add($lblHeading)
+
 try {
     (New-Object System.Net.WebClient).DownloadFile($LogoUrl, $LogoPath)
     $picLogo.Image    = [System.Drawing.Image]::FromFile($LogoPath)
     $picLogo.SizeMode = [System.Windows.Forms.PictureBoxSizeMode]::Zoom
-    $picLogo.Location = New-Object System.Drawing.Point(188, 5)
+    $picLogo.Location = New-Object System.Drawing.Point(225, 9)
     $picLogo.Size     = New-Object System.Drawing.Size(200, 58)
-    $picLogo.BackColor = [System.Drawing.Color]::FromArgb(0, 114, 198)
-    $panel1.Controls.Add($picLogo)
+    $picLogo.BackColor = $clrBlue
+    $panelHeader.Controls.Add($picLogo)
 } catch {}
 
-$labelHeading.Text      = $Win_Heading
-$labelHeading.Font      = New-Object System.Drawing.Font("Microsoft Sans Serif", 12, [System.Drawing.FontStyle]::Regular)
-$labelHeading.ForeColor = [System.Drawing.Color]::White
-$labelHeading.Location  = New-Object System.Drawing.Point(12, 18)
-$labelHeading.Size      = New-Object System.Drawing.Size(175, 30)
-$labelHeading.TextAlign = "MiddleLeft"
-$panel1.Controls.Add($labelHeading)
+# ── Body panel (white) ────────────────────────────────────────────────────────
+$panelBody.BackColor = $clrWhite
+$panelBody.Location  = New-Object System.Drawing.Point(0, 75)
+$panelBody.Size      = New-Object System.Drawing.Size(440, 155)
 
-# Body text
-$labelBody.Text      = $Win_Body
-$labelBody.Font      = New-Object System.Drawing.Font("Microsoft Sans Serif", 9)
-$labelBody.Location  = New-Object System.Drawing.Point(12, 80)
-$labelBody.Size      = New-Object System.Drawing.Size(375, 75)
+$lblBody.Text      = $Win_Body
+$lblBody.Font      = New-Object System.Drawing.Font("Segoe UI", 10)
+$lblBody.ForeColor = $clrTextDark
+$lblBody.Location  = New-Object System.Drawing.Point(20, 18)
+$lblBody.Size      = New-Object System.Drawing.Size(400, 55)
+$panelBody.Controls.Add($lblBody)
 
-# Countdown
-$labelCountdownLabel.Text      = "Automatischer Neustart in:"
-$labelCountdownLabel.Font      = New-Object System.Drawing.Font("Microsoft Sans Serif", 9, [System.Drawing.FontStyle]::Bold)
-$labelCountdownLabel.Location  = New-Object System.Drawing.Point(80, 168)
-$labelCountdownLabel.Size      = New-Object System.Drawing.Size(180, 20)
-$labelCountdownLabel.AutoSize  = $true
+# Countdown box
+$lblCdLabel.Text      = "Automatischer Neustart in"
+$lblCdLabel.Font      = New-Object System.Drawing.Font("Segoe UI", 9)
+$lblCdLabel.ForeColor = [System.Drawing.Color]::FromArgb(100, 100, 100)
+$lblCdLabel.Location  = New-Object System.Drawing.Point(20, 88)
+$lblCdLabel.AutoSize  = $true
+$panelBody.Controls.Add($lblCdLabel)
 
-$labelCountdown.Text      = "00:30:00"
-$labelCountdown.Font      = New-Object System.Drawing.Font("Microsoft Sans Serif", 9, [System.Drawing.FontStyle]::Bold)
-$labelCountdown.ForeColor = [System.Drawing.Color]::FromArgb(192, 0, 0)
-$labelCountdown.Location  = New-Object System.Drawing.Point(270, 168)
-$labelCountdown.Size      = New-Object System.Drawing.Size(60, 20)
-$labelCountdown.AutoSize  = $true
+$lblCd.Text      = "00:30:00"
+$lblCd.Font      = New-Object System.Drawing.Font("Segoe UI", 18, [System.Drawing.FontStyle]::Bold)
+$lblCd.ForeColor = $clrRed
+$lblCd.Location  = New-Object System.Drawing.Point(230, 78)
+$lblCd.AutoSize  = $true
+$panelBody.Controls.Add($lblCd)
 
-# Button panel
-$panel2.BackColor = [System.Drawing.Color]::FromArgb(236, 236, 236)
-$panel2.Location  = New-Object System.Drawing.Point(0, 200)
-$panel2.Size      = New-Object System.Drawing.Size(400, 140)
+# ── Footer panel (light gray) ─────────────────────────────────────────────────
+$panelFooter.BackColor = $clrGray
+$panelFooter.Location  = New-Object System.Drawing.Point(0, 230)
+$panelFooter.Size      = New-Object System.Drawing.Size(440, 140)
 
+# Top border line on footer
+$borderLine = New-Object System.Windows.Forms.Label
+$borderLine.BackColor = $clrDarkGray
+$borderLine.Location  = New-Object System.Drawing.Point(0, 0)
+$borderLine.Size      = New-Object System.Drawing.Size(440, 1)
+$panelFooter.Controls.Add($borderLine)
+
+# Restart Now button
 $btnNow.Text      = "Jetzt neu starten"
-$btnNow.BackColor = [System.Drawing.Color]::FromArgb(220, 53, 69)
-$btnNow.ForeColor = [System.Drawing.Color]::White
-$btnNow.Font      = New-Object System.Drawing.Font("Microsoft Sans Serif", 9, [System.Drawing.FontStyle]::Bold)
-$btnNow.Location  = New-Object System.Drawing.Point(150, 12)
-$btnNow.Size      = New-Object System.Drawing.Size(105, 40)
+$btnNow.BackColor = $clrRed
+$btnNow.ForeColor = $clrWhite
+$btnNow.Font      = New-Object System.Drawing.Font("Segoe UI", 9, [System.Drawing.FontStyle]::Bold)
+$btnNow.Location  = New-Object System.Drawing.Point(155, 14)
+$btnNow.Size      = New-Object System.Drawing.Size(130, 36)
 $btnNow.FlatStyle = "Flat"
+$btnNow.FlatAppearance.BorderSize = 0
+$panelFooter.Controls.Add($btnNow)
 
-$btn1h.Text     = "In 1 Stunde"
-$btn1h.Location = New-Object System.Drawing.Point(10, 65)
-$btn1h.Size     = New-Object System.Drawing.Size(83, 40)
+# Postpone label
+$lblPostpone.Text      = "Verschieben:"
+$lblPostpone.Font      = New-Object System.Drawing.Font("Segoe UI", 8)
+$lblPostpone.ForeColor = [System.Drawing.Color]::FromArgb(100, 100, 100)
+$lblPostpone.Location  = New-Object System.Drawing.Point(16, 66)
+$lblPostpone.AutoSize  = $true
+$panelFooter.Controls.Add($lblPostpone)
 
-$btn2h.Text     = "In 2 Stunden"
-$btn2h.Location = New-Object System.Drawing.Point(103, 65)
-$btn2h.Size     = New-Object System.Drawing.Size(83, 40)
+# Postpone buttons
+$postponeBtnFont = New-Object System.Drawing.Font("Segoe UI", 8)
+$postponeBtns = @(
+    @{ btn = $btn1h; text = "1 Stunde";   x = 100 },
+    @{ btn = $btn2h; text = "2 Stunden";  x = 190 },
+    @{ btn = $btn4h; text = "4 Stunden";  x = 280 },
+    @{ btn = $btn8h; text = "8 Stunden";  x = 370 }
+)
+foreach ($b in $postponeBtns) {
+    $b.btn.Text      = $b.text
+    $b.btn.Font      = $postponeBtnFont
+    $b.btn.ForeColor = $clrTextDark
+    $b.btn.BackColor = $clrWhite
+    $b.btn.FlatStyle = "Flat"
+    $b.btn.FlatAppearance.BorderColor = $clrDarkGray
+    $b.btn.Location  = New-Object System.Drawing.Point($b.x, 58)
+    $b.btn.Size      = New-Object System.Drawing.Size(80, 30)
+    $panelFooter.Controls.Add($b.btn)
+}
 
-$btn4h.Text     = "In 4 Stunden"
-$btn4h.Location = New-Object System.Drawing.Point(206, 65)
-$btn4h.Size     = New-Object System.Drawing.Size(83, 40)
-
-$btn8h.Text     = "In 8 Stunden"
-$btn8h.Location = New-Object System.Drawing.Point(299, 65)
-$btn8h.Size     = New-Object System.Drawing.Size(90, 40)
-
-$panel2.Controls.AddRange(@($btnNow, $btn1h, $btn2h, $btn4h, $btn8h))
-
-$MainForm.Controls.AddRange(@($panel1, $labelBody, $labelCountdownLabel, $labelCountdown, $panel2))
+$MainForm.Controls.AddRange(@($panelHeader, $panelBody, $panelFooter))
 $MainForm.ShowDialog()
