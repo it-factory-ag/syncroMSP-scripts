@@ -57,7 +57,7 @@ $timer_Tick = {
 
 # Write target restart time to flag file; SYSTEM watcher issues the actual shutdown
 $btnNow.add_Click({
-    Set-Content -Path $FlagPath -Value (Get-Date).AddMinutes(5).ToString("o") -Encoding ASCII
+    Set-Content -Path $FlagPath -Value (Get-Date).ToString("o") -Encoding ASCII
     $MainForm.Close()
 })
 $btn6h.add_Click({

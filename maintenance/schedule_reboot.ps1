@@ -58,14 +58,14 @@ Set-Content -Path $watcherPath -Value $watcherLines -Encoding ASCII
 # SYSTEM watcher task: runs every minute for 7 hours, fires the reboot when the
 # target time written by the dialog is reached.
 $watchAction    = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-WindowStyle Hidden -NonInteractive -ExecutionPolicy Bypass -File `"$watcherPath`""
-$watchTrigger   = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(5) -RepetitionInterval (New-TimeSpan -Minutes 5) -RepetitionDuration (New-TimeSpan -Hours 7)
+$watchTrigger   = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -RepetitionInterval (New-TimeSpan -Minutes 1) -RepetitionDuration (New-TimeSpan -Hours 7)
 $watchTrigger.EndBoundary = $null
 $watchPrincipal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -LogonType ServiceAccount -RunLevel Highest
 $watchSettings  = New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Minutes 1)
 
 Unregister-ScheduledTask -TaskName "SyncroRebootWatcher" -Confirm:$false -ErrorAction SilentlyContinue
 Register-ScheduledTask -TaskName "SyncroRebootWatcher" -Action $watchAction -Trigger $watchTrigger -Principal $watchPrincipal -Settings $watchSettings -Force | Out-Null
-Write-Host "Reboot watcher task scheduled (polls every 5 minutes for 7 hours)"
+Write-Host "Reboot watcher task scheduled (polls every minute for 7 hours)"
 
 # Show the dialog in the user's interactive session via scheduled task
 $taskName  = "SyncroRebootPrompt"
