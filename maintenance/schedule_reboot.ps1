@@ -17,26 +17,26 @@ $loggedInUser = (Get-WmiObject Win32_ComputerSystem).UserName
 
 if (-not $loggedInUser) {
     Write-Host "No user logged in - scheduling reboot in $hoursUntilReboot hours without prompt"
-    shutdown /r /t $secondsLater /c "This computer will restart in $hoursUntilReboot hours for maintenance." /f
+    shutdown /r /t $secondsLater /c "Dieser Computer wird in $hoursUntilReboot Stunden fuer Wartung neu gestartet." /f
     exit 0
 }
 
 Write-Host "Logged-in user: $loggedInUser"
 
 # Build the dialog script line by line to avoid here-string parsing issues with Invoke-Expression
-$msg = "Your computer needs to restart for security maintenance.`n`nClick YES to restart in 1 minute.`nClick NO to restart in $hoursUntilReboot hours.`n`nPlease save your work either way."
+$msg = "Ihr Computer muss fuer Sicherheitswartungen neu gestartet werden.`n`nJA: Neustart in 1 Minute.`nNEIN: Neustart in $hoursUntilReboot Stunden.`n`nBitte speichern Sie Ihre Arbeit."
 $scriptLines = @(
     'Add-Type -AssemblyName System.Windows.Forms',
     ('$result = [System.Windows.Forms.MessageBox]::Show(' +
         '"' + $msg + '",' +
-        '"Restart Required",' +
+        '"Neustart erforderlich",' +
         '[System.Windows.Forms.MessageBoxButtons]::YesNo,' +
         '[System.Windows.Forms.MessageBoxIcon]::Warning,' +
         '[System.Windows.Forms.MessageBoxDefaultButton]::Button2)'),
     ('if ($result -eq [System.Windows.Forms.DialogResult]::Yes) {'),
-    ('    shutdown /r /t ' + $secondsNow + ' /c "Restarting in 1 minute for maintenance. Please save your work." /f'),
+    ('    shutdown /r /t ' + $secondsNow + ' /c "Neustart in 1 Minute fuer Wartung. Bitte speichern Sie Ihre Arbeit." /f'),
     ('} else {'),
-    ('    shutdown /r /t ' + $secondsLater + ' /c "This computer will restart in ' + $hoursUntilReboot + ' hours for maintenance. Please save your work." /f'),
+    ('    shutdown /r /t ' + $secondsLater + ' /c "Dieser Computer wird in ' + $hoursUntilReboot + ' Stunden fuer Wartung neu gestartet. Bitte speichern Sie Ihre Arbeit." /f'),
     ('}')
 )
 
