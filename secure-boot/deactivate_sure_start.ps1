@@ -13,18 +13,21 @@ try {
     exit 1
 }
 
-# Find the exact Sure Start Secure Boot setting name on this model
+# Find the Sure Start setting - naming varies by HP model/BIOS version
+# e.g. "Sure Start Secure Boot Keys Protection" or "SureStart Production Mode"
 $setting = Get-WmiObject -Namespace root\HP\InstrumentedBIOS -Class HP_BIOSSetting |
-    Where-Object { $_.Name -like "*Sure Start*Secure Boot*" -or $_.Name -like "*Secure Boot*Sure Start*" } |
+    Where-Object { $_.Name -like "*Sure*Start*" -or $_.Name -like "*SureStart*" } |
     Select-Object -First 1
 
 if (-not $setting) {
-    Write-Host "Sure Start Secure Boot Keys Protection not available on this model - nothing to do"
-    Get-WmiObject -Namespace root\HP\InstrumentedBIOS -Class HP_BIOSSetting |
-        Where-Object { $_.Name -like "*Sure*" } |
-        ForEach-Object { Write-Host "  Available: $($_.Name) = $($_.Value)" }
+    Write-Host "No Sure Start setting found on this model - nothing to do"
     exit 0
 }
+
+Write-Host "Available Sure Start settings on this model:"
+Get-WmiObject -Namespace root\HP\InstrumentedBIOS -Class HP_BIOSSetting |
+    Where-Object { $_.Name -like "*Sure*" -or $_.Name -like "*SureStart*" } |
+    ForEach-Object { Write-Host "  $($_.Name) = $($_.Value)" }
 
 Write-Host "Found setting: '$($setting.Name)' = '$($setting.Value)'"
 
