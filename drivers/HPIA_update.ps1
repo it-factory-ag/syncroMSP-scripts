@@ -1,31 +1,24 @@
-Import-Module $env:SyncroModule -DisableNameChecking
-
 # https://ftp.ext.hp.com/pub/caps-softpaq/cmit/HPIA.html
-$hpiaUrl    = 'https://hpia.hpcloud.hp.com/downloads/hpia/hp-hpia-5.3.6.exe'
-$workDir    = 'C:\_admin\HPIA'
-$installer  = "$workDir\hpia.exe"
-$extractDir = "$workDir\inst"
-$softpaqDir = "$workDir\SWSETUP"
+$url = 'https://hpia.hpcloud.hp.com/downloads/hpia/hp-hpia-5.3.6.exe'
 
-# Clean up any previous run and recreate dirs
-Remove-Item $workDir -Recurse -Force -ErrorAction SilentlyContinue
-New-Item -ItemType Directory -Force -Path $workDir, $extractDir, $softpaqDir | Out-Null
+$dir = 'C:\_admin\HPIA'
+$swsetup = 'C:\_admin\HPIA\SWSETUP'
+$file = "C:\_admin\HPIA\hpia.exe"
+$folder = "c:\_admin\HPIA\inst"
 
-Write-Host "Downloading HP Image Assistant..."
-(New-Object System.Net.WebClient).DownloadFile($hpiaUrl, $installer)
+mkdir $dir
+mkdir $folder
+mkdir $swsetup
+Remove-Item $file
+Remove-Item $folder -Recurse
+$webClient = New-Object System.Net.WebClient
+$webClient.DownloadFile($url,$file)
 
-Write-Host "Extracting..."
-Start-Process -Wait -FilePath $installer -ArgumentList "/s /e /f `"$extractDir`""
+Start-Process -FilePath $file -ArgumentList '/s /e /f c:\_admin\HPIA\inst'
+Start-Sleep -s 10
+Start-Process -wait -FilePath "c:\_admin\HPIA\inst\HPImageAssistant.exe" -ArgumentList '/Operation:Analyze /Category:All /Selection:All /Action:Install /SoftpaqDownloadFolder:c:\_admin\HPIA\SWSETUP /Silent /AutoCleanup'
 
-$hpia = "$extractDir\HPImageAssistant.exe"
-if (-not (Test-Path $hpia)) {
-    Write-Host "ERROR: HPImageAssistant.exe not found after extraction"
-    exit 1
-}
-
-Write-Host "Running HP Image Assistant (install all updates)..."
-$proc = Start-Process -Wait -PassThru -FilePath $hpia -ArgumentList "/Operation:Analyze /Category:All /Selection:All /Action:Install /SoftpaqDownloadFolder:`"$softpaqDir`" /Silent /AutoCleanup"
-Write-Host "HPIA exit code: $($proc.ExitCode)"
-
-Write-Host "Cleaning up..."
-Remove-Item $workDir -Recurse -Force -ErrorAction SilentlyContinue
+Start-Sleep -s 10
+Remove-Item $file
+Remove-Item $folderold -Recurse
+Remove-Item $folder -Recurse
