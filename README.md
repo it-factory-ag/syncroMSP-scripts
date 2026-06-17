@@ -95,7 +95,7 @@ To avoid re-uploading scripts to SyncroMSP on every change, keep a thin wrapper 
 # To avoid re-uploading scripts to SyncroMSP on every change, keep a thin wrapper in SyncroMSP that pulls and executes the latest version of the script
 # https://community.syncromsp.com/t/take-command-master-scripting-with-github/18746
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-$url = "https://raw.githubusercontent.com/it-factory-ag/ifa-helper-scripts/main/syncroMSP/get_bios_info.ps1"
+$url = "https://raw.githubusercontent.com/it-factory-ag/syncroMSP-scripts/main/hardware/get_bios_info.ps1"
 Invoke-Expression (New-Object Net.WebClient).DownloadString($url)
 ```
 
