@@ -4,6 +4,21 @@ PowerShell scripts deployed as SyncroMSP RMM scripts. All scripts use `Import-Mo
 
 ---
 
+## Overview
+
+| Script | Category | What it does | Alerts |
+|---|---|---|---|
+| `secure-boot/check_secure_boot_2023_certs.ps1` | Audit | Checks for Microsoft 2023 Secure Boot cert enrollment | Yes — missing KEK/DB 2023 certs |
+| `secure-boot/patch_secure_boot.ps1` | Remediation | Triggers Windows Secure Boot cert update via registry + scheduled task | No |
+| `secure-boot/deactivate_sure_start.ps1` | Remediation | Disables HP Sure Start via BCU (HP-only) | No |
+| `hardware/get_bios_info.ps1` | Inventory | Prints system, BIOS, CPU, RAM, disk, and network info | No |
+| `hardware/detect_virtual_device.ps1` | Inventory | Detects hypervisor type and writes to asset field | No |
+| `bitlocker/get_bitlocker_keys.ps1` | Security | Reads BitLocker recovery keys and writes to asset fields | No |
+| `windows-update/update_last_successful_WUConnection.ps1` | Audit | Checks when Windows Update last ran successfully | Yes — never run or >20 days ago |
+| `drivers/HPIA_update.ps1` | Maintenance | Downloads and runs HP Image Assistant to install all updates | No |
+
+---
+
 ## Scripts
 
 ### `secure-boot/check_secure_boot_2023_certs.ps1`
@@ -35,7 +50,7 @@ Applies a registry fix and triggers the built-in `Secure-Boot-Update` scheduled 
 
 ### `secure-boot/deactivate_sure_start.ps1`
 
-Disables HP Sure Start via the HP WMI BIOS interface. Exits 0 with a message on non-HP hardware.
+Disables HP Sure Start (`SureStart Production Mode`) via HP BCU. Exits 0 with a message on non-HP hardware. Returns code 6 if Sure Start is hardware-locked — requires manual BIOS setup (F10 at boot) in that case.
 
 ---
 
