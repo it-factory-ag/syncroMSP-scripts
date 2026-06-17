@@ -8,6 +8,7 @@ PowerShell scripts deployed as SyncroMSP RMM scripts. All scripts use `Import-Mo
 
 | Script | What it does |
 |---|---|
+| `health/device_health.ps1` | Combined health collection: BIOS, VM, TPM, Secure Boot, Sure Start, Windows Update, BitLocker |
 | `secure-boot/check_secure_boot_2023_certs.ps1` | Checks for Microsoft 2023 Secure Boot cert enrollment |
 | `secure-boot/patch_secure_boot.ps1` | Triggers Windows Secure Boot cert update via registry + scheduled task |
 | `secure-boot/deactivate_sure_start.ps1` | Disables HP Sure Start via BCU (HP-only) |
