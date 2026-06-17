@@ -1,3 +1,24 @@
+# device_health.ps1
+# Combined read-only health and inventory collection script.
+# Runs all sections regardless of failures and never exits 1.
+# Schedule this script to run regularly to keep asset fields up to date.
+#
+# Custom asset fields required (Admin --> Custom Asset Fields):
+#
+#   Field                     Type    Values
+#   ─────────────────────────────────────────────────────────────────────────
+#   Virtual Machine           Text    VMware, Hyper-V, VirtualBox, QEMU/KVM,
+#                                     Xen, Parallels, No
+#   Secure Boot Enabled       Text    Enabled, Disabled,
+#                                     Not supported (Legacy BIOS), Unknown
+#   Secure Boot KEK 2023      Text    Yes, No, N/A
+#   Secure Boot DB 2023       Text    Yes, No, N/A
+#   Last succesful WUConnection Text  yyyy-MM-dd HH:mm:ss, or Never
+#   Bitlocker_active          Text    Yes, No
+#   Bitlocker_Key_C           Text    Recovery key
+#   Bitlocker_Key_D           Text    Recovery key
+#   Bitlocker_Key_E           Text    Recovery key
+
 Import-Module $env:SyncroModule -DisableNameChecking
 
 function Write-Section($title) {
