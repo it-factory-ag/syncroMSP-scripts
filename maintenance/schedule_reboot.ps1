@@ -45,9 +45,10 @@ $dialogScript | Out-File -FilePath $scriptPath -Encoding UTF8 -Force
 
 $taskName = "SyncroRebootPrompt"
 $action   = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-WindowStyle Hidden -ExecutionPolicy Bypass -File `"$scriptPath`""
-$trigger  = New-ScheduledTaskTrigger -Once -At (Get-Date).AddSeconds(10)
+$trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddSeconds(10)
+$trigger.EndBoundary = $null  # prevent invalid EndBoundary XML bug in PowerShell
 $principal = New-ScheduledTaskPrincipal -UserId $loggedInUser -LogonType Interactive -RunLevel Limited
-$settings  = New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Minutes 5) -DeleteExpiredTaskAfter (New-TimeSpan -Minutes 10)
+$settings  = New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Minutes 5)
 
 Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
 Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Force | Out-Null
