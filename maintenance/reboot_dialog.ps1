@@ -79,13 +79,13 @@ $MainForm.ShowIcon        = $false
 $MainForm.ShowInTaskbar   = $false
 
 # ── Header panel (blue) ───────────────────────────────────────────────────────
-$panelHeader.BackColor = $clrBlue
+$panelHeader.BackColor = $clrWhite
 $panelHeader.Location  = New-Object System.Drawing.Point(0, 0)
 $panelHeader.Size      = New-Object System.Drawing.Size(440, 75)
 
 $lblHeading.Text      = $Win_Heading
 $lblHeading.Font      = New-Object System.Drawing.Font("Segoe UI", 13, [System.Drawing.FontStyle]::Regular)
-$lblHeading.ForeColor = $clrWhite
+$lblHeading.ForeColor = $clrTextDark
 $lblHeading.Location  = New-Object System.Drawing.Point(16, 22)
 $lblHeading.Size      = New-Object System.Drawing.Size(210, 30)
 $lblHeading.TextAlign = "MiddleLeft"
@@ -97,7 +97,7 @@ try {
     $picLogo.SizeMode = [System.Windows.Forms.PictureBoxSizeMode]::Zoom
     $picLogo.Location = New-Object System.Drawing.Point(225, 9)
     $picLogo.Size     = New-Object System.Drawing.Size(200, 58)
-    $picLogo.BackColor = $clrBlue
+    $picLogo.BackColor = $clrWhite
     $panelHeader.Controls.Add($picLogo)
 } catch {}
 
