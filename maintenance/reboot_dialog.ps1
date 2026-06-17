@@ -56,12 +56,26 @@ $timer_Tick = {
 }
 
 # Write target restart time to flag file; SYSTEM watcher issues the actual shutdown
+$script:rebooting = $false
+
 $btnNow.add_Click({
+    $script:rebooting = $true
     Set-Content -Path $FlagPath -Value (Get-Date).ToString("o") -Encoding ASCII
-    $MainForm.Close()
+    $timer.Stop()
+    $lblHeading.Text    = "Neustart geplant"
+    $lblBody.Text       = "Der Computer wird in den nächsten Minuten automatisch neu gestartet." + [Environment]::NewLine + [Environment]::NewLine + "Sie können ihn auch manuell neu starten: Start -> Neu starten."
+    $lblCdLabel.Visible = $false
+    $lblCd.Visible      = $false
+    $btnNow.Visible     = $false
+    $btn6h.Text         = "Schließen"
+    $btn6h.Location     = New-Object System.Drawing.Point(155, 20)
+    $btn6h.Size         = New-Object System.Drawing.Size(130, 36)
 })
+
 $btn6h.add_Click({
-    Set-Content -Path $FlagPath -Value (Get-Date).AddHours(6).ToString("o") -Encoding ASCII
+    if (-not $script:rebooting) {
+        Set-Content -Path $FlagPath -Value (Get-Date).AddHours(6).ToString("o") -Encoding ASCII
+    }
     $MainForm.Close()
 })
 
