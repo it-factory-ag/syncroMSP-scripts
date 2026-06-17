@@ -52,8 +52,16 @@ $timer_Tick = {
     }
 }
 
-$btnNow.add_Click({ Start-Process -FilePath "shutdown.exe" -ArgumentList "/r /t 0 /f"; $MainForm.Close() })
-$btn6h.add_Click({ Start-Process -FilePath "shutdown.exe" -ArgumentList "/r /t 21600 /f"; $MainForm.Close() })
+function Invoke-Shutdown($seconds) {
+    $psi = New-Object System.Diagnostics.ProcessStartInfo
+    $psi.FileName        = "C:\Windows\System32\shutdown.exe"
+    $psi.Arguments       = "/r /t $seconds /f"
+    $psi.UseShellExecute = $true
+    [System.Diagnostics.Process]::Start($psi) | Out-Null
+}
+
+$btnNow.add_Click({ Invoke-Shutdown 0; $MainForm.Close() })
+$btn6h.add_Click({ Invoke-Shutdown 21600; $MainForm.Close() })
 
 $timer.Interval = 1000
 $timer.add_Tick($timer_Tick)
