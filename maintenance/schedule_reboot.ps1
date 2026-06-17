@@ -1,6 +1,6 @@
 # schedule_reboot.ps1
 # Shows the logged-in user a dialog asking to restart now or in 6 hours.
-# Schedules a forced reboot either way — user cannot skip it entirely.
+# Schedules a forced reboot either way - user cannot skip it entirely.
 # Runs as SYSTEM via SyncroMSP; uses a scheduled task to show the dialog
 # in the user's interactive session.
 
@@ -52,4 +52,4 @@ $settings  = New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Min
 Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
 Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Force | Out-Null
 
-Write-Host "Reboot prompt scheduled for $loggedInUser — reboot will be forced in $hoursUntilReboot hours regardless of choice"
+Write-Host "Reboot prompt scheduled for $loggedInUser - reboot will be forced in $hoursUntilReboot hours regardless of choice"
