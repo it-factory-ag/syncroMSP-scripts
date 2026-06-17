@@ -63,7 +63,7 @@ $btnNow.add_Click({
     Set-Content -Path $FlagPath -Value (Get-Date).ToString("o") -Encoding ASCII
     $timer.Stop()
     $lblHeading.Text    = "Neustart geplant"
-    $lblBody.Text       = "Der Computer wird in den nächsten Minuten automatisch neu gestartet." + [Environment]::NewLine + [Environment]::NewLine + "Sie können ihn auch manuell neu starten: Start -> Neu starten."
+    $lblBody.Text       = "Der Computer wird in den nächsten Minuten automatisch neu gestartet."
     $lblCdLabel.Visible = $false
     $lblCd.Visible      = $false
     $btnNow.Visible     = $false
