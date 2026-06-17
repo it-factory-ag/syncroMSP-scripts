@@ -9,7 +9,8 @@
 
 $Win_Heading  = "Neustart erforderlich"
 $Win_Body     = "Ihr Computer muss aufgrund von Updates neu gestartet werden. Bitte speichern Sie offene Dokumente bevor der Computer heruntergefahren wird."
-$TotalTime    = 1800  # seconds until forced restart if no button is clicked
+$TotalTime    = 300   # seconds until forced restart if no button is clicked
+$FlagPath     = "C:\Windows\Temp\syncro_reboot_soon.flag"
 $LogoUrl      = "https://raw.githubusercontent.com/it-factory-ag/syncroMSP-scripts/main/maintenance/it_factory_logo200x58.png"
 $LogoPath     = "C:\Windows\Temp\ifa_logo.png"
 
@@ -45,18 +46,19 @@ $timer_Tick = {
     [TimeSpan]$span = $script:StartTime - (Get-Date)
     if ($span.TotalSeconds -le 0) {
         $timer.Stop()
-        (Get-WmiObject -Class Win32_OperatingSystem -EnableAllPrivileges).Win32Shutdown(6)
+        Set-Content -Path $FlagPath -Value "1" -Encoding ASCII
         $MainForm.Close()
     } else {
         $lblCd.Text = "{0:00}:{1:00}:{2:00}" -f $span.Hours, $span.Minutes, $span.Seconds
     }
 }
 
+# Write flag file so the SYSTEM watcher task in schedule_reboot.ps1 triggers the actual reboot
 $btnNow.add_Click({
-    (Get-WmiObject -Class Win32_OperatingSystem -EnableAllPrivileges).Win32Shutdown(6)
+    Set-Content -Path $FlagPath -Value "1" -Encoding ASCII
     $MainForm.Close()
 })
-# "In 6 Stunden": just close - the SYSTEM-scheduled fallback in schedule_reboot.ps1 handles the 6h reboot
+# "In 6 Stunden": just close - the SYSTEM-scheduled 6h fallback handles it
 $btn6h.add_Click({ $MainForm.Close() })
 
 $timer.Interval = 1000
@@ -119,7 +121,7 @@ $lblCdLabel.Location  = New-Object System.Drawing.Point(20, 88)
 $lblCdLabel.AutoSize  = $true
 $panelBody.Controls.Add($lblCdLabel)
 
-$lblCd.Text      = "00:30:00"
+$lblCd.Text      = "00:05:00"
 $lblCd.Font      = New-Object System.Drawing.Font("Segoe UI", 18, [System.Drawing.FontStyle]::Bold)
 $lblCd.ForeColor = $clrRed
 $lblCd.Location  = New-Object System.Drawing.Point(230, 78)
@@ -137,7 +139,7 @@ $borderLine.Location  = New-Object System.Drawing.Point(0, 0)
 $borderLine.Size      = New-Object System.Drawing.Size(440, 1)
 $panelFooter.Controls.Add($borderLine)
 
-$btnNow.Text      = "Jetzt neu starten"
+$btnNow.Text      = "In 5 Min. neu starten"
 $btnNow.BackColor = $clrRed
 $btnNow.ForeColor = $clrWhite
 $btnNow.Font      = New-Object System.Drawing.Font("Segoe UI", 9, [System.Drawing.FontStyle]::Bold)
