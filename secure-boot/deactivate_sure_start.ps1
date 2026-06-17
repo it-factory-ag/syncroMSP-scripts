@@ -1,4 +1,4 @@
-Import-Module $env:SyncroModule
+Import-Module $env:SyncroModule -DisableNameChecking
 
 # Set BIOS admin password here if one is configured, otherwise leave empty
 $biosPassword = ""

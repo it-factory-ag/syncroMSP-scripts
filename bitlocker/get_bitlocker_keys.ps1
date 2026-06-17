@@ -2,7 +2,7 @@
 # Syncro Device asset type. Assets -> Manage Types -> Syncro Device -> New Field
 # Based on the Syncro Staff product keys script.
 
-Import-Module $env:SyncroModule
+Import-Module $env:SyncroModule -DisableNameChecking
 
 #Creates temp directory if it does not exist
 New-Item -ItemType Directory -Force -Path C:\Temp

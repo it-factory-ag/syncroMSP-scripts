@@ -1,4 +1,4 @@
-Import-Module $env:SyncroModule
+Import-Module $env:SyncroModule -DisableNameChecking
 
 # Custom asset fields (must be created in Admin --> Custom Asset Fields)
 $fieldSecureBoot = "Secure Boot Enabled"

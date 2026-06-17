@@ -1,4 +1,4 @@
-Import-Module $env:SyncroModule
+Import-Module $env:SyncroModule -DisableNameChecking
 $customAssetField = "Last succesful WUConnection"  # This field will need to be created in Admin --> Custom Asset Fields
 
 

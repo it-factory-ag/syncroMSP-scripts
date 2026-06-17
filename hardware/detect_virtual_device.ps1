@@ -1,4 +1,4 @@
-Import-Module $env:SyncroModule
+Import-Module $env:SyncroModule -DisableNameChecking
 $customAssetField = "Virtual Machine"  # This field will need to be created in Admin --> Custom Asset Fields
 
 $cs = Get-WmiObject -Class Win32_ComputerSystem

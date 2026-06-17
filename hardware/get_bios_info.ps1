@@ -1,4 +1,4 @@
-Import-Module $env:SyncroModule
+Import-Module $env:SyncroModule -DisableNameChecking
 
 function Write-Section($title) {
     Write-Host ""
