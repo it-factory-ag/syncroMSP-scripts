@@ -96,7 +96,7 @@ To avoid re-uploading scripts to SyncroMSP on every change, keep a thin wrapper 
 # https://community.syncromsp.com/t/take-command-master-scripting-with-github/18746
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 $url = "https://raw.githubusercontent.com/it-factory-ag/ifa-helper-scripts/main/syncroMSP/get_bios_info.ps1"
-Invoke-Expression (New.Object Net.WebClient).DownloadString($url)
+Invoke-Expression (New-Object Net.WebClient).DownloadString($url)
 ```
 
 See the [SyncroMSP community post](https://community.syncromsp.com/t/take-command-master-scripting-with-github/18746) for details.
