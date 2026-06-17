@@ -35,9 +35,18 @@ if ($report) {
 }
 $xml = Get-ChildItem $reportDir -Filter "*.xml" | Select-Object -First 1
 if ($xml) {
-    Write-Host "--- HPIA XML report ---"
-    Get-Content $xml.FullName | Write-Host
-    Write-Host "---"
+    [xml]$doc = Get-Content $xml.FullName
+    $sys = $doc.HPIA.SystemInfo.System
+    Write-Host "Model:        $($sys.ProductName)"
+    Write-Host "BIOS:         $($sys.BIOSVersion) ($($sys.BIOSDate))"
+    Write-Host "Health:       $($doc.HPIA.OverallHealth) / Security: $($doc.HPIA.OverallSecurity)"
+
+    $doc.HPIA.Recommendations.ChildNodes | ForEach-Object {
+        $category = $_.Name
+        $_.Recommendation | ForEach-Object {
+            Write-Host "  [$category] $($_.TargetComponent): $($_.TargetVersion) -> $($_.ReferenceVersion) ($($_.Comments))"
+        }
+    }
 }
 
 Write-Host "Cleaning up..."
