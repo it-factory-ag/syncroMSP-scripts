@@ -1,14 +1,15 @@
 # schedule_reboot.ps1
-# Shows the logged-in user a dialog asking to restart now or in 6 hours.
-# Schedules a forced reboot either way - user cannot skip it entirely.
-# Runs as SYSTEM via SyncroMSP; uses a scheduled task to show the dialog
-# in the user's interactive session.
+# Downloads reboot_dialog.ps1 and shows it to the logged-in user via a
+# scheduled task (required because SyncroMSP runs as SYSTEM).
+# The dialog has a 30-minute countdown and postpone options up to 8 hours.
+# A forced reboot is scheduled regardless so the user cannot skip it entirely.
 
 Import-Module $env:SyncroModule -DisableNameChecking
 
-$hoursUntilReboot = 6
-$secondsLater     = $hoursUntilReboot * 3600
-$secondsNow       = 60
+$dialogUrl    = "https://raw.githubusercontent.com/it-factory-ag/syncroMSP-scripts/main/maintenance/reboot_dialog.ps1"
+$scriptPath   = "C:\Windows\Temp\reboot_dialog.ps1"
+$hoursMax     = 8
+$secondsMax   = $hoursMax * 3600
 
 # Cancel any previously scheduled shutdown
 shutdown /a 2>$null
@@ -16,41 +17,30 @@ shutdown /a 2>$null
 $loggedInUser = (Get-WmiObject Win32_ComputerSystem).UserName
 
 if (-not $loggedInUser) {
-    Write-Host "No user logged in - scheduling reboot in $hoursUntilReboot hours without prompt"
-    shutdown /r /t $secondsLater /c "Dieser Computer wird in $hoursUntilReboot Stunden fuer Wartung neu gestartet." /f
+    Write-Host "No user logged in - scheduling forced reboot in $hoursMax hours"
+    shutdown /r /t $secondsMax /c "Dieser Computer wird in $hoursMax Stunden fuer Wartung neu gestartet." /f
     exit 0
 }
 
 Write-Host "Logged-in user: $loggedInUser"
 
-# Build the dialog script line by line to avoid here-string parsing issues with Invoke-Expression
-$msg = "Ihr Computer muss fuer Sicherheitswartungen neu gestartet werden.`n`nJA: Neustart in 1 Minute.`nNEIN: Neustart in $hoursUntilReboot Stunden.`n`nBitte speichern Sie Ihre Arbeit."
-$scriptLines = @(
-    'Add-Type -AssemblyName System.Windows.Forms',
-    ('$result = [System.Windows.Forms.MessageBox]::Show(' +
-        '"' + $msg + '",' +
-        '"Neustart erforderlich",' +
-        '[System.Windows.Forms.MessageBoxButtons]::YesNo,' +
-        '[System.Windows.Forms.MessageBoxIcon]::Warning,' +
-        '[System.Windows.Forms.MessageBoxDefaultButton]::Button2)'),
-    ('if ($result -eq [System.Windows.Forms.DialogResult]::Yes) {'),
-    ('    shutdown /r /t ' + $secondsNow + ' /c "Neustart in 1 Minute fuer Wartung. Bitte speichern Sie Ihre Arbeit." /f'),
-    ('} else {'),
-    ('    shutdown /r /t ' + $secondsLater + ' /c "Dieser Computer wird in ' + $hoursUntilReboot + ' Stunden fuer Wartung neu gestartet. Bitte speichern Sie Ihre Arbeit." /f'),
-    ('}')
-)
+# Download the dialog script
+Write-Host "Downloading reboot dialog..."
+(New-Object System.Net.WebClient).DownloadFile($dialogUrl, $scriptPath)
 
-$scriptPath = "C:\Windows\Temp\reboot_prompt.ps1"
-$scriptLines | Set-Content -Path $scriptPath -Encoding UTF8 -Force
+# Schedule forced reboot as fallback (in case user postpones to max and dialog closes)
+shutdown /r /t $secondsMax /c "Dieser Computer wird in $hoursMax Stunden fuer Wartung neu gestartet. Bitte speichern Sie Ihre Arbeit." /f
+Write-Host "Fallback forced reboot scheduled in $hoursMax hours"
 
+# Show the dialog in the user's interactive session via scheduled task
 $taskName  = "SyncroRebootPrompt"
 $action    = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-WindowStyle Hidden -ExecutionPolicy Bypass -File `"$scriptPath`""
 $trigger   = New-ScheduledTaskTrigger -Once -At (Get-Date).AddSeconds(10)
 $trigger.EndBoundary = $null
 $principal = New-ScheduledTaskPrincipal -UserId $loggedInUser -LogonType Interactive -RunLevel Limited
-$settings  = New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Minutes 5)
+$settings  = New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Minutes 15)
 
 Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
 Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Force | Out-Null
 
-Write-Host "Reboot prompt sent to $loggedInUser - forced reboot in $hoursUntilReboot hours regardless of choice"
+Write-Host "Reboot dialog shown to $loggedInUser"
