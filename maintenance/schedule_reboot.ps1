@@ -81,8 +81,10 @@ Register-ScheduledTask -TaskName "SyncroRebootWatcher" -Action $watchAction -Tri
 Write-Host "Reboot watcher task scheduled (polls every 3 minutes for 7 hours)"
 
 # Show the dialog in the user's interactive session via scheduled task
-$taskName  = "SyncroRebootPrompt"
-$action    = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-WindowStyle Hidden -ExecutionPolicy Bypass -File `"$scriptPath`""
+$taskName   = "SyncroRebootPrompt"
+$dialogLog  = "C:\Windows\Temp\reboot_dialog.log"
+Remove-Item $dialogLog -Force -ErrorAction SilentlyContinue
+$action    = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-ExecutionPolicy Bypass -Command `"Start-Transcript -Path '$dialogLog' -Force; `$ErrorActionPreference = 'Continue'; Write-Host ('LanguageMode: ' + `$ExecutionContext.SessionState.LanguageMode); & '$scriptPath'; Stop-Transcript`""
 $trigger   = New-ScheduledTaskTrigger -Once -At (Get-Date).AddSeconds(10)
 $trigger.EndBoundary = $null
 $principal = New-ScheduledTaskPrincipal -UserId $loggedInUser -LogonType Interactive -RunLevel Limited
@@ -100,6 +102,13 @@ if ($taskInfo) {
     Write-Host "Task next run time  : $($taskInfo.NextRunTime)"
 } else {
     Write-Host "WARNING: Could not retrieve task info for '$taskName'"
+}
+
+if (Test-Path $dialogLog) {
+    Write-Host "--- Dialog script log ---"
+    Get-Content $dialogLog | ForEach-Object { Write-Host $_ }
+} else {
+    Write-Host "No dialog log found - process may have been blocked before it could start"
 }
 
 $recentEvents = Get-WinEvent -LogName "Microsoft-Windows-TaskScheduler/Operational" -ErrorAction SilentlyContinue |
