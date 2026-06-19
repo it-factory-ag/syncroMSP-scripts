@@ -23,6 +23,19 @@ $watcherPath    = "C:\Windows\Temp\syncro_reboot_watcher.ps1"
 shutdown /a 2>$null
 
 $loggedInUser = (Get-WmiObject Win32_ComputerSystem).UserName
+Write-Host "WMI Win32_ComputerSystem.UserName: '$loggedInUser'"
+
+# Fallback: query via explorer.exe owner (more reliable with Windows Hello / biometric login)
+if (-not $loggedInUser) {
+    $explorerOwner = Get-WmiObject Win32_Process -Filter "Name='explorer.exe'" |
+        ForEach-Object { $_.GetOwner() } |
+        Where-Object { $_.User } |
+        Select-Object -First 1
+    if ($explorerOwner) {
+        $loggedInUser = "$($explorerOwner.Domain)\$($explorerOwner.User)"
+        Write-Host "Fallback via explorer.exe owner: '$loggedInUser'"
+    }
+}
 
 if (-not $loggedInUser) {
     Write-Host "No user logged in - rebooting immediately"
@@ -77,5 +90,28 @@ $settings  = New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Hou
 
 Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
 Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Force | Out-Null
-Write-Host "Reboot dialog shown to $loggedInUser"
+Write-Host "Reboot dialog task registered for $loggedInUser - fires in ~10 seconds"
+
+Start-Sleep -Seconds 15
+$taskInfo = Get-ScheduledTaskInfo -TaskName $taskName -ErrorAction SilentlyContinue
+if ($taskInfo) {
+    Write-Host "Task last run time  : $($taskInfo.LastRunTime)"
+    Write-Host "Task last run result: $($taskInfo.LastTaskResult) (0 = success)"
+    Write-Host "Task next run time  : $($taskInfo.NextRunTime)"
+} else {
+    Write-Host "WARNING: Could not retrieve task info for '$taskName'"
+}
+
+$recentEvents = Get-WinEvent -LogName "Microsoft-Windows-TaskScheduler/Operational" -ErrorAction SilentlyContinue |
+    Where-Object { $_.Message -like "*$taskName*" } |
+    Select-Object -First 5
+if ($recentEvents) {
+    Write-Host "--- Task Scheduler events ---"
+    foreach ($e in $recentEvents) {
+        Write-Host "$($e.TimeCreated)  [$($e.Id)]  $($e.Message -replace '\s+',' ')"
+    }
+} else {
+    Write-Host "No Task Scheduler events found for '$taskName'"
+}
+
 exit 0
