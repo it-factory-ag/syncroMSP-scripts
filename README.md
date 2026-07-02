@@ -14,6 +14,7 @@ PowerShell scripts deployed as SyncroMSP RMM scripts. All scripts use `Import-Mo
 | `hardware/get_bios_info.ps1` | Diagnostic: prints detailed system, BIOS, Secure Boot, TPM, and event log info |
 | `drivers/HPIA_update.ps1` | Downloads and runs HP Image Assistant to install all updates |
 | `maintenance/schedule_reboot.ps1` | Notifies the logged-in user and schedules a forced reboot in 6 hours |
+| `maintenance/remove_apps/` | Removes unwanted Win32 and AppX apps based on a per-customer app list |
 
 ---
 
@@ -34,6 +35,33 @@ Disables HP Sure Start (`SureStart Production Mode`) via HP BCU. Exits 0 with a 
 ### `hardware/get_bios_info.ps1`
 
 Collects system, BIOS, CPU, RAM, disk, and network information and prints it to the script output.
+
+---
+
+### `maintenance/remove_apps/`
+
+Removes unwanted Win32 and AppX/Store apps from Windows endpoints. Uses the GitHub wrapper pattern — only a thin wrapper script lives in SyncroMSP; the logic and app lists are maintained in this repo.
+
+**Structure:**
+```
+maintenance/remove_apps/
+  core.ps1                        ← removal engine (downloaded at runtime)
+  <name>.ps1                      ← SyncroMSP wrapper per app list (upload this)
+  applists/
+    <name>.ps1                    ← app list: $AppxPackages and $Win32Apps arrays
+```
+
+**Adding a new app list:**
+1. Create `maintenance/remove_apps/applists/<name>.ps1` with `$AppxPackages` and `$Win32Apps` arrays
+2. Copy an existing wrapper (e.g. `vsgn_image_cleanup.ps1`), rename it, and set `$AppList = '<name>'`
+3. Push to `main` — existing wrappers in SyncroMSP pick up list changes immediately, no re-upload needed
+4. Upload the new wrapper to SyncroMSP under **Scripting → Scripts**
+
+**App lists:**
+
+| File | Customer / use case |
+|---|---|
+| `applists/vsgn_image_cleanup.ps1` | VSGN — removes apps from old image |
 
 ---
 
