@@ -59,7 +59,7 @@ if ($Win32Apps.Count -gt 0) {
 
     foreach ($AppName in $Win32Apps) {
         $entries = @(Get-ItemProperty -Path $uninstallPaths -ErrorAction SilentlyContinue |
-                     Where-Object { $_.DisplayName -eq $AppName })
+                     Where-Object { $_.DisplayName -like $AppName })
         if ($entries.Count -eq 0) {
             Write-Host "Not installed (Win32): $AppName"
             $skipped++
