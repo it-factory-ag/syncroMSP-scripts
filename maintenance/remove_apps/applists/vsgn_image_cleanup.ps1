@@ -35,4 +35,6 @@ $Win32Apps = @(
     'UltraVNC'
     'KeePass Password Safe 2.57'
     'Logitech Presentation'
+    'Avidemux VC++ 64bits'
+    'Eclipse Temurin JRE mit Hotspot 11.0.14+9 (x64)'
 )
