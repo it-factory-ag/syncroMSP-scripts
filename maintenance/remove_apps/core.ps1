@@ -58,27 +58,30 @@ if ($Win32Apps.Count -gt 0) {
     )
 
     foreach ($AppName in $Win32Apps) {
-        $entries = Get-ItemProperty -Path $uninstallPaths -ErrorAction SilentlyContinue |
-                   Where-Object { $_.DisplayName -eq $AppName }
-        # Prefer MSI-based uninstaller when multiple entries exist — it supports silent flags reliably
-        $entry = $entries | Where-Object { $_.UninstallString -match 'msiexec' } | Select-Object -First 1
-        if (-not $entry) { $entry = $entries | Select-Object -First 1 }
-        if ($entry) {
+        $entries = @(Get-ItemProperty -Path $uninstallPaths -ErrorAction SilentlyContinue |
+                     Where-Object { $_.DisplayName -eq $AppName })
+        if ($entries.Count -eq 0) {
+            Write-Host "Not installed (Win32): $AppName"
+            $skipped++
+            continue
+        }
+
+        $appRemoved = $false
+        foreach ($entry in $entries) {
+            # Use QuietUninstallString if available — it's specifically meant for silent uninstall
+            $uninstallCmd = if ($entry.QuietUninstallString) { $entry.QuietUninstallString } else { $entry.UninstallString }
+            if ($uninstallCmd -match 'msiexec') {
+                $uninstallCmd = $uninstallCmd -replace '/I', '/X'
+                if ($uninstallCmd -notmatch '/quiet') { $uninstallCmd += ' /quiet /norestart' }
+            } elseif ($uninstallCmd -match '\.exe' -and $uninstallCmd -notmatch '/S|/silent|/quiet|/VERYSILENT') {
+                $uninstallCmd += ' /S /VERYSILENT /NORESTART'
+            }
+
             try {
-                $uninstallCmd = $entry.UninstallString
-                if ($uninstallCmd -match 'msiexec') {
-                    $uninstallCmd = $uninstallCmd -replace '/I', '/X'
-                    if ($uninstallCmd -notmatch '/quiet') { $uninstallCmd += ' /quiet /norestart' }
-                } elseif ($uninstallCmd -match '\.exe') {
-                    # NSIS installers use /S, Inno Setup uses /VERYSILENT — try both
-                    if ($uninstallCmd -notmatch '/S|/silent|/quiet|/VERYSILENT') {
-                        $uninstallCmd += ' /S /VERYSILENT /NORESTART'
-                    }
-                }
                 $proc = Start-Process -FilePath 'cmd.exe' -ArgumentList "/c $uninstallCmd" -PassThru -ErrorAction Stop
                 if ($proc.WaitForExit(120000)) {
-                    Write-Host "Removed Win32: $AppName"
-                    $removed++
+                    Write-Host "Removed Win32: $AppName ($uninstallCmd)"
+                    $appRemoved = $true
                 } else {
                     $proc.Kill()
                     Write-Host "TIMEOUT removing Win32: $AppName (killed after 120s)"
@@ -88,10 +91,8 @@ if ($Win32Apps.Count -gt 0) {
                 Write-Host "FAILED Win32 $AppName`: $($_.Exception.Message)"
                 $failed++
             }
-        } else {
-            Write-Host "Not installed (Win32): $AppName"
-            $skipped++
         }
+        if ($appRemoved) { $removed++ }
     }
 }
 
