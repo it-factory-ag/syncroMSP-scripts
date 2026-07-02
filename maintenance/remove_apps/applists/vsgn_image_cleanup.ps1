@@ -18,7 +18,8 @@ $PreKillProcesses = @(
 
 # Directories to forcefully delete when the uninstaller doesn't clean up properly.
 $ForceDeletePaths = @(
-    'C:\Program Files (x86)\DigiOnline GmbH'  # WebWeaver Desktop 6 — uninstaller left files behind
+    'C:\Program Files (x86)\DigiOnline GmbH'        # WebWeaver Desktop 6 — uninstaller left files behind
+    'C:\Program Files\Logitech\LogiPresentation'    # Logitech Presentation — uninstaller left files behind
 )
 
 # Win32 / MSI apps to remove, matched by display name.
