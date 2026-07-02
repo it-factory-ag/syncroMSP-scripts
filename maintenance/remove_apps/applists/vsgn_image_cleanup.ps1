@@ -16,6 +16,11 @@ $PreKillProcesses = @(
     'pCloud'
 )
 
+# Directories to forcefully delete when the uninstaller doesn't clean up properly.
+$ForceDeletePaths = @(
+    'C:\Program Files (x86)\DigiOnline GmbH'  # WebWeaver Desktop 6 — uninstaller left files behind
+)
+
 # Win32 / MSI apps to remove, matched by display name.
 # Use the exact name shown in Windows Settings > Apps > Installed apps.
 $Win32Apps = @(

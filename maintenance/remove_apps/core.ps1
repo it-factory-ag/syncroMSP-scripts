@@ -3,6 +3,7 @@ Import-Module $env:SyncroModule -DisableNameChecking
 if (-not $AppxPackages)     { $AppxPackages     = @() }
 if (-not $Win32Apps)        { $Win32Apps        = @() }
 if (-not $PreKillProcesses) { $PreKillProcesses = @() }
+if (-not $ForceDeletePaths) { $ForceDeletePaths = @() }
 
 if ($PreKillProcesses.Count -gt 0) {
     Write-Host "=== Pre-kill Processes ==="
@@ -96,6 +97,26 @@ if ($Win32Apps.Count -gt 0) {
             }
         }
         if ($appRemoved) { $removed++ }
+    }
+}
+
+# --- Force delete paths ---
+if ($ForceDeletePaths.Count -gt 0) {
+    Write-Host "=== Force Delete Paths ==="
+    foreach ($path in $ForceDeletePaths) {
+        if (Test-Path $path) {
+            try {
+                Remove-Item -Path $path -Recurse -Force -ErrorAction Stop
+                Write-Host "Deleted: $path"
+                $removed++
+            } catch {
+                Write-Host "FAILED deleting $path`: $($_.Exception.Message)"
+                $failed++
+            }
+        } else {
+            Write-Host "Not found: $path"
+            $skipped++
+        }
     }
 }
 
