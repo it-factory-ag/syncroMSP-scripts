@@ -74,7 +74,10 @@ if ($Win32Apps.Count -gt 0) {
                 $uninstallCmd = $uninstallCmd -replace '/I', '/X'
                 if ($uninstallCmd -notmatch '/quiet') { $uninstallCmd += ' /quiet /norestart' }
             } elseif ($uninstallCmd -match '\.exe' -and $uninstallCmd -notmatch '/S|/silent|/quiet|/VERYSILENT') {
-                $uninstallCmd += ' /S /VERYSILENT /NORESTART'
+                # /quiet   = WiX Burn bootstrappers
+                # /S       = NSIS
+                # /VERYSILENT /NORESTART = Inno Setup
+                $uninstallCmd += ' /quiet /S /VERYSILENT /NORESTART'
             }
 
             try {
