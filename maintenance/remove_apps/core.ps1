@@ -105,6 +105,14 @@ if ($ForceDeletePaths.Count -gt 0) {
     Write-Host "=== Force Delete Paths ==="
     foreach ($path in $ForceDeletePaths) {
         if (Test-Path $path) {
+            # Kill any process whose executable lives inside this directory
+            Get-Process -ErrorAction SilentlyContinue | Where-Object {
+                try { $_.MainModule.FileName -like "$path\*" } catch { $false }
+            } | ForEach-Object {
+                Write-Host "Killing process: $($_.Name) ($($_.MainModule.FileName))"
+                $_ | Stop-Process -Force -ErrorAction SilentlyContinue
+            }
+            Start-Sleep -Seconds 2
             try {
                 Remove-Item -Path $path -Recurse -Force -ErrorAction Stop
                 Write-Host "Deleted: $path"
