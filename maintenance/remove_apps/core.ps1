@@ -56,10 +56,21 @@ if ($Win32Apps.Count -gt 0) {
                 if ($uninstallCmd -match 'msiexec') {
                     $uninstallCmd = $uninstallCmd -replace '/I', '/X'
                     if ($uninstallCmd -notmatch '/quiet') { $uninstallCmd += ' /quiet /norestart' }
+                } elseif ($uninstallCmd -match '\.exe') {
+                    # NSIS installers use /S, Inno Setup uses /VERYSILENT — try both
+                    if ($uninstallCmd -notmatch '/S|/silent|/quiet|/VERYSILENT') {
+                        $uninstallCmd += ' /S /VERYSILENT /NORESTART'
+                    }
                 }
-                Start-Process -FilePath 'cmd.exe' -ArgumentList "/c $uninstallCmd" -Wait -ErrorAction Stop
-                Write-Host "Removed Win32: $AppName"
-                $removed++
+                $proc = Start-Process -FilePath 'cmd.exe' -ArgumentList "/c $uninstallCmd" -PassThru -ErrorAction Stop
+                if ($proc.WaitForExit(120000)) {
+                    Write-Host "Removed Win32: $AppName"
+                    $removed++
+                } else {
+                    $proc.Kill()
+                    Write-Host "TIMEOUT removing Win32: $AppName (killed after 120s)"
+                    $failed++
+                }
             } catch {
                 Write-Host "FAILED Win32 $AppName`: $($_.Exception.Message)"
                 $failed++
