@@ -54,11 +54,15 @@ if ($Win32Apps.Count -gt 0) {
     $uninstallPaths = @(
         'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*'
         'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*'
+        'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*'
     )
 
     foreach ($AppName in $Win32Apps) {
-        $entry = Get-ItemProperty -Path $uninstallPaths -ErrorAction SilentlyContinue |
-                 Where-Object { $_.DisplayName -eq $AppName }
+        $entries = Get-ItemProperty -Path $uninstallPaths -ErrorAction SilentlyContinue |
+                   Where-Object { $_.DisplayName -eq $AppName }
+        # Prefer MSI-based uninstaller when multiple entries exist — it supports silent flags reliably
+        $entry = $entries | Where-Object { $_.UninstallString -match 'msiexec' } | Select-Object -First 1
+        if (-not $entry) { $entry = $entries | Select-Object -First 1 }
         if ($entry) {
             try {
                 $uninstallCmd = $entry.UninstallString
