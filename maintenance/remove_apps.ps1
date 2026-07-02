@@ -1,72 +1,57 @@
 Import-Module $env:SyncroModule -DisableNameChecking
 
-# AppX / Windows Store packages to remove.
-# Use the package family name (without version suffix).
-# Add image-specific AppX packages in the marked section below.
-$AppxPackages = @(
-    'Microsoft.GamingApp'
-    'Microsoft.XboxApp'
-    'Microsoft.XboxGameOverlay'
-    'Microsoft.XboxGamingOverlay'
-    'Microsoft.XboxIdentityProvider'
-    'Microsoft.XboxSpeechToTextOverlay'
-    'Microsoft.Xbox.TCUI'
-)
+# SyncroMSP script variable: CustomerConfigUrl
+# Set to the GitHub raw URL of the customer config file, e.g.:
+# https://raw.githubusercontent.com/it-factory-ag/syncroMSP-scripts/main/maintenance/customers/vsgn.ps1
+if (-not $CustomerConfigUrl) {
+    Write-Host "ERROR: CustomerConfigUrl script variable is not set."
+    exit 1
+}
 
-# Win32 / MSI apps to remove, matched by display name.
-# Use the exact name shown in Windows Settings > Apps > Installed apps.
-$Win32Apps = @(
-    # --- Clear removals ---
-    'Brave' # keep?
-    'Mozilla Thunderbird (x64 en-US)' # remove
-    'Mozilla Thunderbird (x86 en-US)' # remove
-    'Dropbox'
-    'Dropbox Update Helper'
-    'pCloud Drive'
-    'GIMP 2.10.38'
-    'GIMP 3.2.2'
-    'Brother CanvasWorkspace'
-    'CodeTwo QR Code Desktop Reader & Generator'
-    'Advanced IP Scanner 2.5.1'
-    'TightReceiverPro 1.2.1'
-    'WebWeaver® Desktop 6'
-    'TeamViewer'                  # remote support tool — keep if IT uses it
-    'UltraVNC'                    # remote access — keep if needed alongside TeamViewer
-    'KeePass Password Safe 2.57'  # password manager — not in keep list
-    # '7-Zip 26.00 (x64)'           # archive tool — not in keep list
-    'Logitech Presentation'        # only needed with Logitech presenter hardware
-)
+Write-Host "Loading config: $CustomerConfigUrl"
+try {
+    $config = (New-Object System.Net.WebClient).DownloadString($CustomerConfigUrl)
+    Invoke-Expression $config
+} catch {
+    Write-Host "ERROR: Failed to load customer config: $($_.Exception.Message)"
+    exit 1
+}
+
+if (-not $AppxPackages) { $AppxPackages = @() }
+if (-not $Win32Apps)    { $Win32Apps    = @() }
 
 $removed = 0
 $failed  = 0
 $skipped = 0
 
 # --- AppX removal ---
-Write-Host "=== AppX Package Removal ==="
-foreach ($App in $AppxPackages) {
-    $pkg = Get-AppxPackage -AllUsers -Name $App -ErrorAction SilentlyContinue
-    if ($pkg) {
-        try {
-            Remove-AppxPackage -Package $pkg.PackageFullName -AllUsers -ErrorAction Stop
-            Write-Host "Removed AppX: $App"
-            $removed++
-        } catch {
-            Write-Host "FAILED AppX $App`: $($_.Exception.Message)"
-            $failed++
+if ($AppxPackages.Count -gt 0) {
+    Write-Host "=== AppX Package Removal ==="
+    foreach ($App in $AppxPackages) {
+        $pkg = Get-AppxPackage -AllUsers -Name $App -ErrorAction SilentlyContinue
+        if ($pkg) {
+            try {
+                Remove-AppxPackage -Package $pkg.PackageFullName -AllUsers -ErrorAction Stop
+                Write-Host "Removed AppX: $App"
+                $removed++
+            } catch {
+                Write-Host "FAILED AppX $App`: $($_.Exception.Message)"
+                $failed++
+            }
+        } else {
+            Write-Host "Not installed (AppX): $App"
+            $skipped++
         }
-    } else {
-        Write-Host "Not installed (AppX): $App"
-        $skipped++
-    }
 
-    $prov = Get-AppxProvisionedPackage -Online -ErrorAction SilentlyContinue |
-            Where-Object { $_.DisplayName -eq $App }
-    if ($prov) {
-        try {
-            Remove-AppxProvisionedPackage -Online -PackageName $prov.PackageName -ErrorAction Stop
-            Write-Host "Removed provisioned: $App"
-        } catch {
-            Write-Host "FAILED provisioned $App`: $($_.Exception.Message)"
+        $prov = Get-AppxProvisionedPackage -Online -ErrorAction SilentlyContinue |
+                Where-Object { $_.DisplayName -eq $App }
+        if ($prov) {
+            try {
+                Remove-AppxProvisionedPackage -Online -PackageName $prov.PackageName -ErrorAction Stop
+                Write-Host "Removed provisioned: $App"
+            } catch {
+                Write-Host "FAILED provisioned $App`: $($_.Exception.Message)"
+            }
         }
     }
 }
