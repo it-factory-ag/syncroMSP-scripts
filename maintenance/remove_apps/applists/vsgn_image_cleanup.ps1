@@ -20,6 +20,7 @@ $PreKillProcesses = @(
 $ForceDeletePaths = @(
     'C:\Program Files (x86)\DigiOnline GmbH'        # WebWeaver Desktop 6 — uninstaller left files behind
     'C:\Program Files\Logitech\LogiPresentation'    # Logitech Presentation — uninstaller left files behind
+    'C:\Program Files\Avidemux 2.8 VC++ 64bits'    # Avidemux — no registry entry, files only
 )
 
 # Win32 / MSI apps to remove, matched by display name.
@@ -41,6 +42,6 @@ $Win32Apps = @(
     'UltraVNC'
     'KeePass Password Safe 2.57'
     'Logitech Presentation'
-    'Avidemux VC++ 64bits'
+
     'Eclipse Temurin JRE*'
 )
