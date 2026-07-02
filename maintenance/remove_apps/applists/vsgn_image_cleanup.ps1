@@ -16,11 +16,13 @@ $PreKillProcesses = @(
     'pCloud'
 )
 
-# Directories to forcefully delete when the uninstaller doesn't clean up properly.
+# Leftover directories to delete after uninstallation.
+# Use for: (a) apps with no uninstaller, or (b) apps whose uninstaller is confirmed to leave files behind.
+# The uninstaller is always run first via $Win32Apps — this only cleans up what it misses.
 $ForceDeletePaths = @(
-    'C:\Program Files (x86)\DigiOnline GmbH'        # WebWeaver Desktop 6 — uninstaller left files behind
-    'C:\Program Files\Logitech\LogiPresentation'    # Logitech Presentation — uninstaller left files behind
-    'C:\Program Files\Avidemux 2.8 VC++ 64bits'    # Avidemux — no registry entry, files only
+    'C:\Program Files (x86)\DigiOnline GmbH'        # WebWeaver Desktop 6 — uninstaller runs but leaves files (no silent flag documented)
+    'C:\Program Files\Logitech\LogiPresentation'    # Logitech Presentation — uninstaller runs with /S but leaves files (confirmed Logitech bug)
+    'C:\Program Files\Avidemux 2.8 VC++ 64bits'    # Avidemux — no uninstaller exists, files only
 )
 
 # Win32 / MSI apps to remove, matched by display name.
