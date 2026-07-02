@@ -1,7 +1,16 @@
 Import-Module $env:SyncroModule -DisableNameChecking
 
-if (-not $AppxPackages) { $AppxPackages = @() }
-if (-not $Win32Apps)    { $Win32Apps    = @() }
+if (-not $AppxPackages)     { $AppxPackages     = @() }
+if (-not $Win32Apps)        { $Win32Apps        = @() }
+if (-not $PreKillProcesses) { $PreKillProcesses = @() }
+
+if ($PreKillProcesses.Count -gt 0) {
+    Write-Host "=== Pre-kill Processes ==="
+    foreach ($proc in $PreKillProcesses) {
+        Stop-Process -Name $proc -Force -ErrorAction SilentlyContinue
+        Write-Host "Killed: $proc"
+    }
+}
 
 $removed = 0
 $failed  = 0

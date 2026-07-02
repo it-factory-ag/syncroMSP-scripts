@@ -11,6 +11,11 @@ $AppxPackages = @(
     'Microsoft.SkypeApp'
 )
 
+# Processes to kill before running Win32 uninstallers (e.g. apps that block their own uninstall).
+$PreKillProcesses = @(
+    'pCloud'
+)
+
 # Win32 / MSI apps to remove, matched by display name.
 # Use the exact name shown in Windows Settings > Apps > Installed apps.
 $Win32Apps = @(
@@ -18,7 +23,7 @@ $Win32Apps = @(
     'Mozilla Thunderbird (x86 en-US)'
     'Dropbox'
     'Dropbox Update Helper'
-    'pCloud Drive'
+    'pCloud Drive'          # process killed before uninstall — see $PreKillProcesses below
     'GIMP 2.10.38'
     'GIMP 3.2.2'
     'Brother CanvasWorkspace'
