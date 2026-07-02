@@ -128,6 +128,34 @@ if ($ForceDeletePaths.Count -gt 0) {
     }
 }
 
+# --- Clean up broken shortcuts ---
+Write-Host "=== Shortcut Cleanup ==="
+$shortcutDirs = @(
+    'C:\ProgramData\Microsoft\Windows\Start Menu\Programs'
+    'C:\Users\Public\Desktop'
+) + (Get-ChildItem 'C:\Users' -Directory -ErrorAction SilentlyContinue |
+     ForEach-Object {
+         "$($_.FullName)\AppData\Roaming\Microsoft\Windows\Start Menu\Programs"
+         "$($_.FullName)\Desktop"
+     })
+
+$shell = New-Object -ComObject WScript.Shell
+$cleanedShortcuts = 0
+foreach ($dir in $shortcutDirs) {
+    if (-not (Test-Path $dir)) { continue }
+    Get-ChildItem -Path $dir -Filter '*.lnk' -Recurse -ErrorAction SilentlyContinue | ForEach-Object {
+        try {
+            $target = $shell.CreateShortcut($_.FullName).TargetPath
+            if ($target -and -not (Test-Path $target)) {
+                Remove-Item $_.FullName -Force -ErrorAction SilentlyContinue
+                Write-Host "Removed broken shortcut: $($_.Name) -> $target"
+                $cleanedShortcuts++
+            }
+        } catch {}
+    }
+}
+if ($cleanedShortcuts -eq 0) { Write-Host "No broken shortcuts found." }
+
 # --- Summary ---
 Write-Host "=== Summary ==="
 Write-Host "Removed: $removed | Skipped (not found): $skipped | Failed: $failed"
