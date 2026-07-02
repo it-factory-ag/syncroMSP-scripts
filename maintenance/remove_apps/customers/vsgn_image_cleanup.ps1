@@ -8,13 +8,13 @@ $AppxPackages = @(
     'Microsoft.XboxIdentityProvider'
     'Microsoft.XboxSpeechToTextOverlay'
     'Microsoft.Xbox.TCUI'
+    'Microsoft.SkypeApp'
 )
 
 # Win32 / MSI apps to remove, matched by display name.
 # Use the exact name shown in Windows Settings > Apps > Installed apps.
 $Win32Apps = @(
     'Brave'
-    'Mozilla Thunderbird (x64 en-US)'
     'Mozilla Thunderbird (x86 en-US)'
     'Dropbox'
     'Dropbox Update Helper'
@@ -29,6 +29,5 @@ $Win32Apps = @(
     'TeamViewer'
     'UltraVNC'
     'KeePass Password Safe 2.57'
-    # '7-Zip 26.00 (x64)'
     'Logitech Presentation'
 )
