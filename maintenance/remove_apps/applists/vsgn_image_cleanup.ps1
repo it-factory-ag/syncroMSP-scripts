@@ -9,6 +9,7 @@ $AppxPackages = @(
     'Microsoft.XboxSpeechToTextOverlay'
     'Microsoft.Xbox.TCUI'
     'Microsoft.SkypeApp'
+    'DigiOnlineGmbH.WebWeaver'
 )
 
 # Processes to kill before running Win32 uninstallers (e.g. apps that block their own uninstall).
