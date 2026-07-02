@@ -1,22 +1,5 @@
 Import-Module $env:SyncroModule -DisableNameChecking
 
-# SyncroMSP script variable: CustomerConfigUrl
-# Set to the GitHub raw URL of the customer config file, e.g.:
-# https://raw.githubusercontent.com/it-factory-ag/syncroMSP-scripts/main/maintenance/customers/vsgn.ps1
-if (-not $CustomerConfigUrl) {
-    Write-Host "ERROR: CustomerConfigUrl script variable is not set."
-    exit 1
-}
-
-Write-Host "Loading config: $CustomerConfigUrl"
-try {
-    $config = (New-Object System.Net.WebClient).DownloadString($CustomerConfigUrl)
-    Invoke-Expression $config
-} catch {
-    Write-Host "ERROR: Failed to load customer config: $($_.Exception.Message)"
-    exit 1
-}
-
 if (-not $AppxPackages) { $AppxPackages = @() }
 if (-not $Win32Apps)    { $Win32Apps    = @() }
 
