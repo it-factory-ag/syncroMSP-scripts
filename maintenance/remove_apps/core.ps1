@@ -146,7 +146,8 @@ foreach ($dir in $shortcutDirs) {
     Get-ChildItem -Path $dir -Filter '*.lnk' -Recurse -ErrorAction SilentlyContinue | ForEach-Object {
         try {
             $target = $shell.CreateShortcut($_.FullName).TargetPath
-            if ($target -and -not (Test-Path $target)) {
+            # Skip UNC paths — network shares appear broken when offline but should not be removed
+            if ($target -and $target -notlike '\\*' -and -not (Test-Path $target)) {
                 Remove-Item $_.FullName -Force -ErrorAction SilentlyContinue
                 Write-Host "Removed broken shortcut: $($_.Name) -> $target"
                 $cleanedShortcuts++

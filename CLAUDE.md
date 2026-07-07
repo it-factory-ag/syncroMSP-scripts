@@ -6,6 +6,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 PowerShell scripts deployed as [SyncroMSP](https://syncromsp.com/) RMM scripts. They run on managed Windows endpoints via SyncroMSP's scripting engine.
 
+## Creating new scripts
+
+Make sure, to update the README.md to keep the list of scripts up-to-date. 
+
 ## Deployment Model
 
 Scripts are uploaded directly into SyncroMSP under **Scripting → Scripts** and run on endpoints. There is no build step or test runner — scripts are validated by reading and reasoning about them.
