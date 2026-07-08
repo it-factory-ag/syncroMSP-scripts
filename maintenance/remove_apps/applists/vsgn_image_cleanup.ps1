@@ -9,7 +9,6 @@ $AppxPackages = @(
     'Microsoft.XboxSpeechToTextOverlay'
     'Microsoft.Xbox.TCUI'
     'Microsoft.SkypeApp'
-    'DigiOnlineGmbH.WebWeaver'
 )
 
 # Processes to kill before running Win32 uninstallers (e.g. apps that block their own uninstall).
@@ -35,7 +34,6 @@ $Win32Apps = @(
     'Dropbox Update Helper'
     'pCloud Drive'          # process killed before uninstall — see $PreKillProcesses below
     'GIMP 2.10.38'
-    'GIMP 3.2.2'
     'Brother CanvasWorkspace'
     'CodeTwo QR Code Desktop Reader & Generator'
     'Advanced IP Scanner 2.5.1'
