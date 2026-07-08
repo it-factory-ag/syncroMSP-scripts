@@ -23,6 +23,7 @@ $ForceDeletePaths = @(
     'C:\Program Files (x86)\DigiOnline GmbH'        # WebWeaver Desktop 6 — uninstaller runs but leaves files (no silent flag documented)
     'C:\Program Files\Logitech\LogiPresentation'    # Logitech Presentation — uninstaller runs with /S but leaves files (confirmed Logitech bug)
     'C:\Program Files\Avidemux 2.8 VC++ 64bits'    # Avidemux — no uninstaller exists, files only
+    'C:\_admin\wnetwatcher'
 )
 
 # Win32 / MSI apps to remove, matched by display name.
