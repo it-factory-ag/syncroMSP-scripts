@@ -22,9 +22,9 @@ if ($teamsProcs) {
     Write-Host "No Teams processes running."
 }
 
-# --- [1/2] Classic Teams cache ---
+# --- [1/3] Classic Teams cache ---
 Write-Host ""
-Write-Host "[1/2] Classic Teams cache..."
+Write-Host "[1/3] Classic Teams cache..."
 $classicPath = "$env:APPDATA\Microsoft\Teams"
 if (Test-Path $classicPath) {
     Remove-Item "$classicPath" -Recurse -Force -ErrorAction SilentlyContinue
