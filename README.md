@@ -15,6 +15,7 @@ PowerShell scripts deployed as SyncroMSP RMM scripts. All scripts use `Import-Mo
 | `drivers/HPIA_update.ps1` | Downloads and runs HP Image Assistant to install all updates |
 | `maintenance/schedule_reboot.ps1` | Notifies the logged-in user and schedules a forced reboot in 6 hours |
 | `maintenance/office_licence_cache_cleanup.ps1` | Clears all Office/M365 identity and license caches (run as logged-in user; reboot required after) |
+| `maintenance/teams_cache_cleanup.ps1` | Clears classic + new Teams local cache (run as logged-in user; re-login required after) |
 | `maintenance/remove_apps/` | Removes unwanted Win32 and AppX apps based on a per-customer app list |
 
 ---
