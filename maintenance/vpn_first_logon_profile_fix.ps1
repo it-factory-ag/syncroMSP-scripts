@@ -17,7 +17,8 @@ Import-Module $env:SyncroModule
 #   Computer Configuration > Administrative Templates > System > Group Policy
 #     "Configure Group Policy slow link detection" -> Enabled, 0 Kbps
 #
-# A REBOOT is required afterwards - Fast Logon Optimization only applies at boot.
+# Runs gpupdate /force and reboots the device afterwards - Fast Logon
+# Optimization only applies at boot, so a running gpupdate alone is not enough.
 
 Write-Host "=== VPN First-Logon GPO Fix ==="
 
@@ -37,7 +38,12 @@ New-ItemProperty -Path $gpSystemKey -Name "GroupPolicyMinTransferRate" -Value 0 
 Write-Host "Set 'Configure Group Policy slow link detection' = Enabled, 0 Kbps"
 
 Write-Host ""
+Write-Host "Refreshing Group Policy..."
+gpupdate /force | Out-Null
+
+Write-Host ""
 Write-Host "=== Done ==="
-Write-Host "IMPORTANT: Reboot the device - these settings only take effect at boot."
+Write-Host "Rebooting in 60 seconds - these settings only take effect at boot."
+shutdown /r /t 60 /c "Applying VPN login fix - device will restart in 60 seconds." /f
 
 exit 0
