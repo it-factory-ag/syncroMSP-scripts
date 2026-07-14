@@ -33,9 +33,9 @@ if (Test-Path $classicPath) {
     Write-Host "  Not present, skipped."
 }
 
-# --- [2/2] New Teams cache ---
+# --- [2/3] New Teams cache ---
 Write-Host ""
-Write-Host "[2/2] New Teams (MSTeams) cache..."
+Write-Host "[2/3] New Teams (MSTeams) cache..."
 $newTeamsPaths = @(
     "$env:LOCALAPPDATA\Packages\MSTeams_8wekyb3d8bbwe\LocalCache",
     "$env:LOCALAPPDATA\Packages\MSTeams_8wekyb3d8bbwe\LocalState"
@@ -49,8 +49,41 @@ foreach ($p in $newTeamsPaths) {
     }
 }
 
+# --- [3/3] Shared WAM/broker identity cache ---
+# Teams (and Office, Edge) resolve the tenant via the OS-wide Web Account
+# Manager broker. A stale tenant resolution can survive even after the
+# Teams-specific caches above are cleared, because it lives here instead.
+Write-Host ""
+Write-Host "[3/3] Shared WAM/broker identity cache..."
+$brokerPaths = @(
+    "$env:LOCALAPPDATA\Microsoft\IdentityCache",
+    "$env:LOCALAPPDATA\Microsoft\OneAuth",
+    "$env:LOCALAPPDATA\Microsoft\TokenBroker",
+    "$env:LOCALAPPDATA\Packages\Microsoft.AAD.BrokerPlugin_cw5n1h2txyewy"
+)
+foreach ($p in $brokerPaths) {
+    if (Test-Path $p) {
+        Remove-Item "$p\*" -Recurse -Force -ErrorAction SilentlyContinue
+        Write-Host "  Cleared: $p"
+    } else {
+        Write-Host "  Not present: $p"
+    }
+}
+
+$credPatterns = @("TokenBroker", "AzureAD", "MicrosoftAccount", "WorkplaceJoin")
+$credList = cmdkey /list
+foreach ($pattern in $credPatterns) {
+    $credMatches = $credList | Select-String -Pattern "Target: .*$pattern.*"
+    foreach ($m in $credMatches) {
+        $target = ($m.ToString() -replace "Target:\s*", "").Trim()
+        Write-Host "  Removing credential: $target"
+        cmdkey /delete:$target 2>$null | Out-Null
+    }
+}
+
 Write-Host ""
 Write-Host "=== Done ==="
 Write-Host "Sign back into Teams to re-sync."
+Write-Host "If the issue persists, also check Settings > Accounts > Access work or school for a stale account entry."
 
 exit 0
