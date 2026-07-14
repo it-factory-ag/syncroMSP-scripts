@@ -16,6 +16,7 @@ PowerShell scripts deployed as SyncroMSP RMM scripts. All scripts use `Import-Mo
 | `maintenance/schedule_reboot.ps1` | Notifies the logged-in user and schedules a forced reboot in 6 hours |
 | `maintenance/office_licence_cache_cleanup.ps1` | Clears all Office/M365 identity and license caches (run as logged-in user; reboot required after) |
 | `maintenance/teams_cache_cleanup.ps1` | Clears classic + new Teams local cache (run as logged-in user; re-login required after) |
+| `maintenance/vpn_first_logon_profile_fix.ps1` | Sets local policy to fix failed first domain login over VPN: always wait for network at logon + disable GPO slow-link detection (reboot required after) |
 | `maintenance/remove_apps/` | Removes unwanted Win32 and AppX apps based on a per-customer app list |
 
 ---
@@ -37,6 +38,17 @@ Disables HP Sure Start (`SureStart Production Mode`) via HP BCU. Exits 0 with a 
 ### `hardware/get_bios_info.ps1`
 
 Collects system, BIOS, CPU, RAM, disk, and network information and prints it to the script output.
+
+---
+
+### `maintenance/vpn_first_logon_profile_fix.ps1`
+
+Fixes a failed first-time domain login over VPN, where Windows leaves an empty profile folder and login fails with `ERROR_GROUP_NOT_IN_CORRECT_STATE` ("The group or resource is not in the correct state to perform the requested operation"). Root cause is a Group Policy slow-link-detection race condition during profile creation over a high-latency VPN link — see [wiki article](https://wiki.prod.itfactory.ch/doc/erstanmeldung-domanenaccount-via-vpn-schlagt-fehl-FymRUwXiLV). Sets the two policy values locally on the device (equivalent to the domain GPO fix, but scoped to this machine instead of an OU):
+
+- `HKLM\SOFTWARE\Policies\Microsoft\Windows NT\CurrentVersion\Winlogon\SyncForegroundPolicy` = 1 ("Always wait for the network at computer startup and logon")
+- `HKLM\SOFTWARE\Policies\Microsoft\Windows\System\GroupPolicyMinTransferRate` = 0 ("Configure Group Policy slow link detection")
+
+**A reboot is required afterwards** — these only take effect at boot.
 
 ---
 
