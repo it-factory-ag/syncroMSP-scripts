@@ -53,13 +53,19 @@ foreach ($p in $newTeamsPaths) {
 # Teams (and Office, Edge) resolve the tenant via the OS-wide Web Account
 # Manager broker. A stale tenant resolution can survive even after the
 # Teams-specific caches above are cleared, because it lives here instead.
+#
+# Microsoft.AAD.BrokerPlugin is deliberately NOT included here: it's a UWP
+# package whose LocalState holds required app state, not just tokens. Wiping
+# it corrupts the broker (0x80070002) and breaks sign-in for ALL Office apps
+# (Outlook, Teams, ...) system-wide, not just Teams. If it needs resetting,
+# use `Get-AppxPackage -Name Microsoft.AAD.BrokerPlugin | Reset-AppxPackage`
+# instead of deleting files directly.
 Write-Host ""
 Write-Host "[3/3] Shared WAM/broker identity cache..."
 $brokerPaths = @(
     "$env:LOCALAPPDATA\Microsoft\IdentityCache",
     "$env:LOCALAPPDATA\Microsoft\OneAuth",
-    "$env:LOCALAPPDATA\Microsoft\TokenBroker",
-    "$env:LOCALAPPDATA\Packages\Microsoft.AAD.BrokerPlugin_cw5n1h2txyewy"
+    "$env:LOCALAPPDATA\Microsoft\TokenBroker"
 )
 foreach ($p in $brokerPaths) {
     if (Test-Path $p) {
