@@ -247,16 +247,13 @@ foreach ($drive in @('C', 'D', 'E')) {
 Write-Section "Antivirus"
 try {
     $avProducts = @(Get-WmiObject -Namespace root\SecurityCenter2 -Class AntiVirusProduct -ErrorAction Stop)
-    if ($avProducts.Count -gt 1) {
-        Write-Host "Multiple AV products registered: $($avProducts.displayName -join ', ')"
-        # Windows Defender stays registered but goes passive when a third-party
-        # AV is installed, so prefer the non-Defender product if present.
-        $avProduct = $avProducts | Where-Object { $_.displayName -notmatch 'Windows Defender' } | Select-Object -First 1
-        if (-not $avProduct) { $avProduct = $avProducts[0] }
-    } else {
-        $avProduct = $avProducts[0]
-    }
-    if (-not $avProduct) {
+
+    # Windows Defender commonly stays registered (in passive mode) alongside
+    # real third-party AVs, so exclude it whenever another product is present.
+    $relevant = @($avProducts | Where-Object { $_.displayName -notmatch 'Windows Defender' })
+    if ($relevant.Count -eq 0) { $relevant = $avProducts }
+
+    if ($relevant.Count -eq 0) {
         Write-Host "No antivirus product registered with Security Center"
         Set-Asset-Field -Name "AV Name" -Value "None"
         Set-Asset-Field -Name "AV Definition Status" -Value "Unknown"
@@ -265,32 +262,45 @@ try {
     } else {
         # productState codes below are the known/observed values for Windows
         # Security Center; anything else falls through to "Unknown".
-        $avCode = ($avProduct.productState -split ', ')[0]
-        switch ($avCode) {
-            "262144" { $defStatus = "Up to date";  $rtStatus = "Disabled" }
-            "262160" { $defStatus = "Out of date"; $rtStatus = "Disabled" }
-            "266240" { $defStatus = "Up to date";  $rtStatus = "Enabled" }
-            "266256" { $defStatus = "Out of date"; $rtStatus = "Enabled" }
-            "393216" { $defStatus = "Up to date";  $rtStatus = "Disabled" }
-            "393232" { $defStatus = "Out of date"; $rtStatus = "Disabled" }
-            "393488" { $defStatus = "Out of date"; $rtStatus = "Disabled" }
-            "397312" { $defStatus = "Up to date";  $rtStatus = "Enabled" }
-            "397328" { $defStatus = "Out of date"; $rtStatus = "Enabled" }
-            "397584" { $defStatus = "Out of date"; $rtStatus = "Enabled" }
-            "331776" { $defStatus = "Up to date";  $rtStatus = "Enabled" }
-            default  { $defStatus = "Unknown";      $rtStatus = "Unknown" }
+        $results = foreach ($p in $relevant) {
+            $code = ($p.productState -split ', ')[0]
+            switch ($code) {
+                "262144" { $def = "Up to date";  $rt = "Disabled" }
+                "262160" { $def = "Out of date"; $rt = "Disabled" }
+                "266240" { $def = "Up to date";  $rt = "Enabled" }
+                "266256" { $def = "Out of date"; $rt = "Enabled" }
+                "393216" { $def = "Up to date";  $rt = "Disabled" }
+                "393232" { $def = "Out of date"; $rt = "Disabled" }
+                "393488" { $def = "Out of date"; $rt = "Disabled" }
+                "397312" { $def = "Up to date";  $rt = "Enabled" }
+                "397328" { $def = "Out of date"; $rt = "Enabled" }
+                "397584" { $def = "Out of date"; $rt = "Enabled" }
+                "331776" { $def = "Up to date";  $rt = "Enabled" }
+                default  { $def = "Unknown";      $rt = "Unknown" }
+            }
+            Write-Host "Product:             $($p.displayName)"
+            Write-Host "Definition Status:   $def"
+            Write-Host "Realtime Status:     $rt"
+            Write-Host "Product State code:  $($p.productState)"
+            [PSCustomObject]@{ Name = $p.displayName; Definition = $def; Realtime = $rt }
         }
 
-        Set-Asset-Field -Name "AV Name" -Value $avProduct.displayName
+        # Report the worst-case status across all products so a single stale
+        # or disabled AV isn't masked by a healthy one.
+        $avName    = ($results.Name -join '; ')
+        $defStatus = if ($results.Definition -contains "Out of date") { "Out of date" }
+                     elseif ($results.Definition -contains "Unknown") { "Unknown" }
+                     else { "Up to date" }
+        $rtStatus  = if ($results.Realtime -contains "Disabled") { "Disabled" }
+                     elseif ($results.Realtime -contains "Unknown") { "Unknown" }
+                     else { "Enabled" }
+
+        Set-Asset-Field -Name "AV Name" -Value $avName
         Set-Asset-Field -Name "AV Definition Status" -Value $defStatus
         Set-Asset-Field -Name "AV Realtime Status" -Value $rtStatus
-        Write-Host "Product:             $($avProduct.displayName)"
-        Write-Host "Definition Status:   $defStatus"
-        Write-Host "Realtime Status:     $rtStatus"
-        Write-Host "Product State code:  $($avProduct.productState)"
 
         if ($defStatus -ne "Up to date" -or $rtStatus -ne "Enabled") {
-            # Rmm-Alert -Category "av_out_of_date" -Body "AV is out of date or real-time protection is disabled ($($avProduct.displayName): definitions=$defStatus, realtime=$rtStatus)"
+            # Rmm-Alert -Category "av_out_of_date" -Body "AV is out of date or real-time protection is disabled ($avName): definitions=$defStatus, realtime=$rtStatus)"
         }
     }
 } catch {
