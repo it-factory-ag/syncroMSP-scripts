@@ -246,7 +246,16 @@ foreach ($drive in @('C', 'D', 'E')) {
 
 Write-Section "Antivirus"
 try {
-    $avProduct = Get-WmiObject -Namespace root\SecurityCenter2 -Class AntiVirusProduct -ErrorAction Stop
+    $avProducts = @(Get-WmiObject -Namespace root\SecurityCenter2 -Class AntiVirusProduct -ErrorAction Stop)
+    if ($avProducts.Count -gt 1) {
+        Write-Host "Multiple AV products registered: $($avProducts.displayName -join ', ')"
+        # Windows Defender stays registered but goes passive when a third-party
+        # AV is installed, so prefer the non-Defender product if present.
+        $avProduct = $avProducts | Where-Object { $_.displayName -notmatch 'Windows Defender' } | Select-Object -First 1
+        if (-not $avProduct) { $avProduct = $avProducts[0] }
+    } else {
+        $avProduct = $avProducts[0]
+    }
     if (-not $avProduct) {
         Write-Host "No antivirus product registered with Security Center"
         Set-Asset-Field -Name "AV Name" -Value "None"
