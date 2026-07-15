@@ -8,7 +8,7 @@ PowerShell scripts deployed as SyncroMSP RMM scripts. All scripts use `Import-Mo
 
 | Script | What it does |
 |---|---|
-| `health/device_health.ps1` | Collects health information: BIOS, VM, TPM, Secure Boot, Sure Start, Windows Update, BitLocker |
+| `health/device_health.ps1` | Collects health information: BIOS, OS version/build, VM, TPM, Secure Boot, Sure Start, Windows Update, BitLocker |
 | `secure-boot/patch_secure_boot.ps1` | Triggers Windows Secure Boot cert update via registry + scheduled task |
 | `secure-boot/deactivate_sure_start.ps1` | Disables HP Sure Start via BCU (HP-only) |
 | `hardware/get_bios_info.ps1` | Diagnostic: prints detailed system, BIOS, Secure Boot, TPM, and event log info |
@@ -98,3 +98,10 @@ Invoke-Expression (New-Object Net.WebClient).DownloadString($url)
 ```
 
 See the [SyncroMSP community post](https://community.syncromsp.com/t/take-command-master-scripting-with-github/18746) for details.
+
+
+
+# Todos
+- Health Script
+-- Integrate https://itfactoryag.syncromsp.com/scripts/142933/edit in health script
+-- Health script: runs only once a day

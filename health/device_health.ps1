@@ -18,6 +18,8 @@
 #   Bitlocker_Key_C           Text    Recovery key
 #   Bitlocker_Key_D           Text    Recovery key
 #   Bitlocker_Key_E           Text    Recovery key
+#   OS Version                Text    e.g. "Microsoft Windows 11 Pro 64-bit"
+#   OS Build                  Text    e.g. "23H2, Build 22631.3737"
 
 Import-Module $env:SyncroModule -DisableNameChecking
 
@@ -89,6 +91,21 @@ Write-Host "Model:         $($cs.Model)"
 Write-Host "Serial:        $($bios.SerialNumber)"
 Write-Host "BIOS Version:  $($bios.SMBIOSBIOSVersion)"
 Write-Host "BIOS Date:     $([Management.ManagementDateTimeConverter]::ToDateTime($bios.ReleaseDate).ToString('yyyy-MM-dd'))"
+
+# ─── OS Version ───────────────────────────────────────────────────────────────
+
+Write-Section "OS Version"
+$osInfo    = Get-WmiObject Win32_OperatingSystem
+$osName    = $osInfo.Caption
+$osBit     = $osInfo.OSArchitecture
+$osVersion = "$osName $osBit"
+Set-Asset-Field -Name "OS Version" -Value $osVersion
+Write-Host "OS Version:    $osVersion"
+
+$osReg     = Get-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\'
+$osBuild   = "$($osReg.DisplayVersion), Build $($osReg.CurrentBuildNumber).$($osReg.UBR)"
+Set-Asset-Field -Name "OS Build" -Value $osBuild
+Write-Host "OS Build:      $osBuild"
 
 # ─── Virtual Machine ──────────────────────────────────────────────────────────
 
