@@ -2,6 +2,9 @@
 # Combined read-only health and inventory collection script.
 # Runs all sections regardless of failures and never exits 1.
 # Schedule this script to run regularly to keep asset fields up to date.
+# Note: the Antivirus section can raise an Rmm-Alert (category
+# "av_out_of_date") if definitions are stale or real-time protection is
+# disabled — currently commented out until enabled.
 #
 # Custom asset fields required (Admin --> Custom Asset Fields):
 #
@@ -20,6 +23,9 @@
 #   Bitlocker_Key_E           Text    Recovery key
 #   OS Version                Text    e.g. "Microsoft Windows 11 Pro 64-bit"
 #   OS Build                  Text    e.g. "23H2, Build 22631.3737"
+#   AV Name                   Text    Antivirus product display name
+#   AV Definition Status      Text    Up to date, Out of date, Unknown
+#   AV Realtime Status        Text    Enabled, Disabled, Unknown
 
 Import-Module $env:SyncroModule -DisableNameChecking
 
@@ -234,6 +240,55 @@ foreach ($drive in @('C', 'D', 'E')) {
         Set-Asset-Field -Name "Bitlocker_Key_$drive" -Value $key
         Write-Host "${drive}: Key: $(if ($key) { $key } else { 'None' })"
     }
+}
+
+# ─── Antivirus ────────────────────────────────────────────────────────────────
+
+Write-Section "Antivirus"
+try {
+    $avProduct = Get-WmiObject -Namespace root\SecurityCenter2 -Class AntiVirusProduct -ErrorAction Stop
+    if (-not $avProduct) {
+        Write-Host "No antivirus product registered with Security Center"
+        Set-Asset-Field -Name "AV Name" -Value "None"
+        Set-Asset-Field -Name "AV Definition Status" -Value "Unknown"
+        Set-Asset-Field -Name "AV Realtime Status" -Value "Unknown"
+        # Rmm-Alert -Category "av_out_of_date" -Body "No antivirus product registered with Security Center"
+    } else {
+        # productState codes below are the known/observed values for Windows
+        # Security Center; anything else falls through to "Unknown".
+        $avCode = ($avProduct.productState -split ', ')[0]
+        switch ($avCode) {
+            "262144" { $defStatus = "Up to date";  $rtStatus = "Disabled" }
+            "262160" { $defStatus = "Out of date"; $rtStatus = "Disabled" }
+            "266240" { $defStatus = "Up to date";  $rtStatus = "Enabled" }
+            "266256" { $defStatus = "Out of date"; $rtStatus = "Enabled" }
+            "393216" { $defStatus = "Up to date";  $rtStatus = "Disabled" }
+            "393232" { $defStatus = "Out of date"; $rtStatus = "Disabled" }
+            "393488" { $defStatus = "Out of date"; $rtStatus = "Disabled" }
+            "397312" { $defStatus = "Up to date";  $rtStatus = "Enabled" }
+            "397328" { $defStatus = "Out of date"; $rtStatus = "Enabled" }
+            "397584" { $defStatus = "Out of date"; $rtStatus = "Enabled" }
+            "331776" { $defStatus = "Up to date";  $rtStatus = "Enabled" }
+            default  { $defStatus = "Unknown";      $rtStatus = "Unknown" }
+        }
+
+        Set-Asset-Field -Name "AV Name" -Value $avProduct.displayName
+        Set-Asset-Field -Name "AV Definition Status" -Value $defStatus
+        Set-Asset-Field -Name "AV Realtime Status" -Value $rtStatus
+        Write-Host "Product:             $($avProduct.displayName)"
+        Write-Host "Definition Status:   $defStatus"
+        Write-Host "Realtime Status:     $rtStatus"
+        Write-Host "Product State code:  $($avProduct.productState)"
+
+        if ($defStatus -ne "Up to date" -or $rtStatus -ne "Enabled") {
+            # Rmm-Alert -Category "av_out_of_date" -Body "AV is out of date or real-time protection is disabled ($($avProduct.displayName): definitions=$defStatus, realtime=$rtStatus)"
+        }
+    }
+} catch {
+    Write-Host "Could not read antivirus status: $($_.Exception.Message)"
+    Set-Asset-Field -Name "AV Name" -Value "Unknown"
+    Set-Asset-Field -Name "AV Definition Status" -Value "Unknown"
+    Set-Asset-Field -Name "AV Realtime Status" -Value "Unknown"
 }
 
 Write-Host ""
