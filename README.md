@@ -55,7 +55,7 @@ Runs `gpupdate /force` and then reboots the device 60 seconds later — these se
 
 ### `maintenance/file-access-audit/Setup-FileAccessAudit.ps1`
 
-One-time setup, run as Administrator (or via SyncroMSP as SYSTEM — see wrapper below) on the file server itself. Sets up a file-level access statistic for a shared folder: which file, how often, last accessed — no usernames in the export, no per-person monitoring.
+One-time setup logic and source of truth (run indirectly via the SyncroMSP wrapper below — do not upload this file itself to Syncro). Sets up a file-level access statistic for a shared folder: which file, how often, last accessed — no usernames in the export, no per-person monitoring.
 
 Prerequisite (set separately via GPO, this script only prints the current setting for manual verification — apply to the **Domain Controllers OU** / `Default Domain Controllers Policy` if the target server is a DC): `Object Access -> Audit File System` = Success, and `Audit: Force audit policy subcategory settings...` = Enabled.
 
@@ -70,15 +70,9 @@ This:
 4. Writes `Collect-FileAccess.ps1` (parses event ID 4663 daily, appends to a cumulative CSV) and `Report-FileAccess.ps1` (aggregates the last 7 days) to `-ScriptDir` (default `C:\_admin\FileAccessAudit\Scripts`)
 5. Registers two scheduled tasks (SYSTEM): daily collection and a weekly report
 
-**GitHub wrapper (manual run):** `maintenance/file-access-audit/Run-Setup-FromGitHub.ps1` downloads the latest `Setup-FileAccessAudit.ps1` from this repo and runs it with the given parameters, so you don't need to copy the full script onto the server by hand:
-
-```powershell
-.\Run-Setup-FromGitHub.ps1 -TargetPath "C:\_Daten\Daten\07 IT\AVOR-Exelprogramme"
-```
-
 Note: `raw.githubusercontent.com` sits behind a CDN and caches responses briefly (~5 min) — the wrapper below adds a cache-busting query string, but if you suspect you're seeing stale content, `curl` the raw URL yourself to check what's actually being served before relying on it.
 
-**SyncroMSP wrapper:** `maintenance/file-access-audit/syncro_setup_avor_exelprogramme.ps1` downloads the current `Setup-FileAccessAudit.ps1` from this repo and runs it with `-TargetPath` hardcoded to the AVOR-Exelprogramme share on `srv`. Follows the standard SyncroMSP script conventions (`Import-Module $env:SyncroModule`, `Rmm-Alert` on failure, `exit 0`/`exit 1`). Upload it under **Scripting → Scripts** and run once against the `srv` asset — the daily/weekly scheduled tasks it creates then run independently of Syncro from that point on. Since it always fetches the current version, no manual sync with `Setup-FileAccessAudit.ps1` is needed.
+**`maintenance/file-access-audit/syncro_setup_avor_exelprogramme.ps1` — this is the file to copy into the SyncroMSP web interface.** It's a thin wrapper: downloads the current `Setup-FileAccessAudit.ps1` from this repo and runs it with `-TargetPath` hardcoded to the AVOR-Exelprogramme share on `srv`. Follows the standard SyncroMSP script conventions (`Import-Module $env:SyncroModule`, `Rmm-Alert` on failure, `exit 0`/`exit 1`). Paste its contents into Syncro under **Scripting → Scripts** and run once against the `srv` asset — the daily/weekly scheduled tasks it creates then run independently of Syncro from that point on. Since it always fetches the current version at runtime, no manual sync with `Setup-FileAccessAudit.ps1` is needed.
 
 Output: cumulative raw CSV and dated weekly report CSVs under `-ReportDir` (default `C:\_admin\FileAccessAudit\Reports`).
 

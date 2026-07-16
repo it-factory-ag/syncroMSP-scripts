@@ -1,10 +1,15 @@
 <#
-SyncroMSP wrapper: one-time setup of file access statistics for the AVOR-Exelprogramme
-share (P:\07 IT\AVOR-Exelprogramme, real local path on srv: C:\_Daten\Daten\07 IT\AVOR-Exelprogramme).
+>>> THIS IS THE SCRIPT TO COPY INTO THE SYNCROMSP WEB INTERFACE <<<
+Paste this whole file into Syncro under Scripting -> Scripts, then run it once against
+the "srv" asset (Domain Controller). Do not schedule recurring - the scheduled tasks it
+creates run independently of Syncro afterward.
 
-Upload under Scripting -> Scripts and run once against the "srv" asset (Domain Controller).
-Pulls the current Setup-FileAccessAudit.ps1 from this repo and executes it locally - that
-script is the source of truth, keep this wrapper's parameters in sync if they change.
+One-time setup of file access statistics for the AVOR-Exelprogramme share
+(P:\07 IT\AVOR-Exelprogramme, real local path on srv: C:\_Daten\Daten\07 IT\AVOR-Exelprogramme).
+
+This is a thin wrapper: it pulls the current Setup-FileAccessAudit.ps1 from this repo and
+executes it locally. That script is the source of truth - keep this wrapper's parameters
+in sync if they change.
 #>
 
 Import-Module $env:SyncroModule
