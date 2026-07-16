@@ -11,11 +11,16 @@ Import-Module $env:SyncroModule
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
 $TargetPath = "C:\_Daten\Daten\07 IT\AVOR-Exelprogramme"
-$url        = "https://raw.githubusercontent.com/it-factory-ag/syncroMSP-scripts/main/maintenance/file-access-audit/Setup-FileAccessAudit.ps1"
+# Cache-busting query string: raw.githubusercontent.com sits behind a CDN, and a stale
+# edge/proxy cache has been observed serving an old version of the script without it.
+$url        = "https://raw.githubusercontent.com/it-factory-ag/syncroMSP-scripts/main/maintenance/file-access-audit/Setup-FileAccessAudit.ps1?nocache=$([Guid]::NewGuid())"
 $localCopy  = Join-Path $env:TEMP "Setup-FileAccessAudit.ps1"
 
 try {
-    (New-Object Net.WebClient).DownloadFile($url, $localCopy)
+    $webClient = New-Object Net.WebClient
+    $webClient.Headers.Add("Cache-Control", "no-cache, no-store")
+    $webClient.Headers.Add("Pragma", "no-cache")
+    $webClient.DownloadFile($url, $localCopy)
     & $localCopy -TargetPath $TargetPath
     Write-Host "File access audit setup completed for '$TargetPath'."
     exit 0
