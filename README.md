@@ -76,7 +76,9 @@ This:
 .\Run-Setup-FromGitHub.ps1 -TargetPath "C:\_Daten\Daten\07 IT\AVOR-Exelprogramme"
 ```
 
-**SyncroMSP wrapper:** `maintenance/file-access-audit/syncro_setup_avor_exelprogramme.ps1` is a customer-specific wrapper (`TargetPath` hardcoded to the AVOR-Exelprogramme share on `srv`) that follows the standard SyncroMSP script conventions (`Import-Module $env:SyncroModule`, `Rmm-Alert` on failure, `exit 0`/`exit 1`). Upload it under **Scripting → Scripts** and run once against the `srv` asset — the daily/weekly scheduled tasks it creates then run independently of Syncro from that point on.
+Note: `raw.githubusercontent.com` sits behind a Fastly CDN that ignores query strings for its cache key, so a stale edge can serve an old version of the script for a while after a push — if you suspect that, `curl` the raw URL yourself to check what's actually being served before relying on it.
+
+**SyncroMSP script:** `maintenance/file-access-audit/syncro_setup_avor_exelprogramme.ps1` is a fully self-contained, customer-specific script (`TargetPath` hardcoded to the AVOR-Exelprogramme share on `srv`, all logic inlined — no runtime GitHub fetch, precisely to avoid the CDN caching gotcha above) that follows the standard SyncroMSP script conventions (`Import-Module $env:SyncroModule`, `Rmm-Alert` on failure, `exit 0`/`exit 1`). Upload it under **Scripting → Scripts** and run once against the `srv` asset — the daily/weekly scheduled tasks it creates then run independently of Syncro from that point on. Keep it in sync with `Setup-FileAccessAudit.ps1` manually if either changes.
 
 Output: cumulative raw CSV and dated weekly report CSVs under `-ReportDir` (default `C:\_admin\FileAccessAudit\Reports`).
 
