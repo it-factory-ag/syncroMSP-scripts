@@ -18,6 +18,7 @@ PowerShell scripts deployed as SyncroMSP RMM scripts. All scripts use `Import-Mo
 | `maintenance/teams_cache_cleanup.ps1` | Clears classic + new Teams local cache (run as logged-in user; re-login required after) |
 | `maintenance/vpn_first_logon_profile_fix.ps1` | Sets local policy to fix failed first domain login over VPN: always wait for network at logon + disable GPO slow-link detection, then gpupdate + reboots the device |
 | `maintenance/remove_apps/` | Removes unwanted Win32 and AppX apps based on a per-customer app list |
+| `maintenance/file-access-audit/Setup-FileAccessAudit.ps1` | One-time setup on a file server: sets SACL, grows the Security log, deploys a daily collector + weekly report script, registers scheduled tasks — file-level access statistics, no per-user monitoring |
 
 ---
 
@@ -49,6 +50,35 @@ Fixes a failed first-time domain login over VPN, where Windows leaves an empty p
 - `HKLM\SOFTWARE\Policies\Microsoft\Windows\System\GroupPolicyMinTransferRate` = 0 ("Configure Group Policy slow link detection")
 
 Runs `gpupdate /force` and then reboots the device 60 seconds later — these settings only take effect at boot.
+
+---
+
+### `maintenance/file-access-audit/Setup-FileAccessAudit.ps1`
+
+One-time setup, run as Administrator (or via SyncroMSP as SYSTEM — see wrapper below) on the file server itself. Sets up a file-level access statistic for a shared folder: which file, how often, last accessed — no usernames in the export, no per-person monitoring.
+
+Prerequisite (set separately via GPO, this script only checks it — apply to the **Domain Controllers OU** / `Default Domain Controllers Policy` if the target server is a DC): `Object Access -> Audit File System` = Success, and `Audit: Force audit policy subcategory settings...` = Enabled.
+
+```powershell
+.\Setup-FileAccessAudit.ps1 -TargetPath "C:\_Daten\Daten\07 IT\AVOR-Exelprogramme"
+```
+
+This:
+1. Checks the `File System` audit subcategory is active
+2. Sets the SACL recursively on `-TargetPath` (`icacls /setaudit`)
+3. Grows the Security event log (default 1 GB) — daily collection avoids losing events to log rotation between weekly reports
+4. Writes `Collect-FileAccess.ps1` (parses event ID 4663 daily, appends to a cumulative CSV) and `Report-FileAccess.ps1` (aggregates the last 7 days) to `-ScriptDir` (default `C:\_admin\FileAccessAudit\Scripts`)
+5. Registers two scheduled tasks (SYSTEM): daily collection and a weekly report
+
+**GitHub wrapper (manual run):** `maintenance/file-access-audit/Run-Setup-FromGitHub.ps1` downloads the latest `Setup-FileAccessAudit.ps1` from this repo and runs it with the given parameters, so you don't need to copy the full script onto the server by hand:
+
+```powershell
+.\Run-Setup-FromGitHub.ps1 -TargetPath "C:\_Daten\Daten\07 IT\AVOR-Exelprogramme"
+```
+
+**SyncroMSP wrapper:** `maintenance/file-access-audit/syncro_setup_avor_exelprogramme.ps1` is a customer-specific wrapper (`TargetPath` hardcoded to the AVOR-Exelprogramme share on `srv`) that follows the standard SyncroMSP script conventions (`Import-Module $env:SyncroModule`, `Rmm-Alert` on failure, `exit 0`/`exit 1`). Upload it under **Scripting → Scripts** and run once against the `srv` asset — the daily/weekly scheduled tasks it creates then run independently of Syncro from that point on.
+
+Output: cumulative raw CSV and dated weekly report CSVs under `-ReportDir` (default `C:\_admin\FileAccessAudit\Reports`).
 
 ---
 
@@ -100,7 +130,11 @@ Invoke-Expression (New-Object Net.WebClient).DownloadString($url)
 See the [SyncroMSP community post](https://community.syncromsp.com/t/take-command-master-scripting-with-github/18746) for details.
 
 
-
 # Todos
 - Health Script
 -- Health script: runs only once a day
+- Script: set Firefox bookmark, change browser language
+-- bookmarks must be placed in folders
+-- Bookmark bar
+--- Folder: Suchen, 1/2 Klasse, 3/4 Klasse, 5/6 Klasse
+--- Link: Schabi 
