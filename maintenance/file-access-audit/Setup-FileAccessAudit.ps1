@@ -111,7 +111,7 @@ $collectScriptContent = @"
 
 `$events = Get-WinEvent -FilterHashtable @{ LogName = 'Security'; Id = 4663; StartTime = `$since } -ErrorAction SilentlyContinue
 
-`$rows = foreach (`$e in `$events) {
+`$rawRows = foreach (`$e in `$events) {
     `$xml  = [xml]`$e.ToXml()
     `$data = @{}
     `$xml.Event.EventData.Data | ForEach-Object { `$data[`$_.Name] = `$_.'#text' }
@@ -120,6 +120,14 @@ $collectScriptContent = @"
     if (`$obj -like "`$targetPath\*" -and `$obj -notlike '*~`$*' -and `$obj -notlike '*.tmp') {
         [PSCustomObject]@{ File = `$obj; Timestamp = `$e.TimeCreated }
     }
+}
+
+# A single file open typically fires 10-20+ raw 4663 events within the same second or two
+# (Explorer icon/thumbnail probes, the app's own open sequence, antivirus real-time scan) -
+# collapse same-file events within the same minute down to one row so AccessCount reflects
+# actual accesses, not raw event volume.
+`$rows = `$rawRows | Group-Object File, { `$_.Timestamp.ToString('yyyy-MM-dd HH:mm') } | ForEach-Object {
+    `$_.Group | Sort-Object Timestamp | Select-Object -First 1
 }
 
 if (`$rows) {
