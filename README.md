@@ -57,14 +57,14 @@ Runs `gpupdate /force` and then reboots the device 60 seconds later — these se
 
 One-time setup logic and source of truth (run indirectly via the SyncroMSP wrapper below — do not upload this file itself to Syncro). Sets up a file-level access statistic for a shared folder: which file, how often, last accessed — no usernames in the export, no per-person monitoring.
 
-Prerequisite (set separately via GPO, this script only prints the current setting for manual verification — apply to the **Domain Controllers OU** / `Default Domain Controllers Policy` if the target server is a DC): `Object Access -> Audit File System` = Success, and `Audit: Force audit policy subcategory settings...` = Enabled.
+Sets the `Object Access -> Audit File System` = Success audit policy itself, locally (`auditpol` + the `SCENoApplyLegacyAuditPolicy` registry value), so no manual GPO edit is required. Caveat: if a GPO already explicitly manages this subcategory on the target server's OU, the next Group Policy background refresh will silently overwrite it back — the script re-checks and prints the result right after setting it so that's immediately visible; if that happens, the durable fix is the GPO itself (`Object Access -> Audit File System` = Success + `Audit: Force audit policy subcategory settings...` = Enabled, applied to the **Domain Controllers OU** / `Default Domain Controllers Policy` if the target server is a DC).
 
 ```powershell
 .\Setup-FileAccessAudit.ps1 -TargetPath "C:\_Daten\Daten\07 IT\AVOR-Exelprogramme"
 ```
 
 This:
-1. Prints the current `File System` audit subcategory setting (referenced by GUID, not name, since `auditpol` rejects the English name on non-English Windows) — check the output for `Success` yourself
+1. Sets the `File System` audit subcategory to Success (referenced by GUID, not name, since `auditpol` rejects the English name on non-English Windows), then prints the result for verification
 2. Sets the SACL recursively on `-TargetPath` (`Get-Acl`/`Set-Acl` with a `FileSystemAuditRule` — `icacls /setaudit` has no documented flag syntax and consistently failed as "invalid parameter")
 3. Grows the Security event log (default 1 GB) — daily collection avoids losing events to log rotation between weekly reports
 4. Writes `Collect-FileAccess.ps1` (parses event ID 4663 daily, appends to a cumulative CSV) and `Report-FileAccess.ps1` (aggregates the last 7 days) to `-ScriptDir` (default `C:\_admin\FileAccessAudit\Scripts`)

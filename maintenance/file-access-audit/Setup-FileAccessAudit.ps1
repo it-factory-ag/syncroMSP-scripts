@@ -2,12 +2,15 @@
 One-time setup for file access statistics on a shared folder on a file server.
 Run on the server as Administrator (not intended as a SyncroMSP endpoint script).
 
-Prerequisite: the Advanced Audit Policy "Object Access -> Audit File System" (Success)
-and "Audit: Force audit policy subcategory settings..." (Enabled) must be applied via GPO
-to the server's OU (Domain Controller). This script only checks that, it does not set it.
+Sets the Advanced Audit Policy "Object Access -> Audit File System" = Success locally via
+auditpol/registry (no GPO edit needed). Caveat: if a GPO already explicitly manages this
+subcategory on this server's OU, the next Group Policy background refresh will silently
+overwrite this local setting again - the script re-checks after setting it so that's
+immediately visible, but the durable fix in that case is the GPO itself.
 
 What this script does:
-  1. Prints the current "File System" audit subcategory setting for manual verification (auditpol)
+  1. Sets "File System" audit subcategory = Success (auditpol + SCENoApplyLegacyAuditPolicy
+     registry value), then prints the resulting setting for verification
   2. Sets the SACL recursively on $TargetPath (Get-Acl/Set-Acl with a FileSystemAuditRule)
   3. Grows the Security event log (default 1 GB)
   4. Writes Collect-FileAccess.ps1 and Report-FileAccess.ps1 to $ScriptDir
@@ -33,11 +36,19 @@ if (-not (Test-Path $TargetPath)) {
     throw "TargetPath '$TargetPath' does not exist. Provide the real local path on the server (not the client drive letter)."
 }
 
-# 1. Check audit policy
+# 1. Enable the audit policy locally (no GPO edit needed)
 # Subcategory referenced by GUID, not name - "File System" is only the English display
 # name and auditpol rejects it with ERROR_INVALID_PARAMETER on non-English Windows.
 $fileSystemSubcategoryGuid = "{0CCE921D-69AE-11D9-BED3-505054503030}"
-Write-Host "Current audit setting for the File System subcategory (verify 'Success' is enabled):"
+
+# "Audit: Force audit policy subcategory settings (Windows Vista or later) to override audit
+# policy category settings" - without this, legacy category-level audit policy can override
+# the advanced subcategory setting below and it silently stays "No Auditing".
+New-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Lsa" -Name "SCENoApplyLegacyAuditPolicy" -PropertyType DWord -Value 1 -Force | Out-Null
+
+auditpol /set /subcategory:"$fileSystemSubcategoryGuid" /success:enable | Out-Null
+
+Write-Host "Audit setting for the File System subcategory after applying it locally (re-verify 'Success' is shown - a GPO on this server's OU could override this back to 'No Auditing' on the next policy refresh):"
 auditpol /get /subcategory:"$fileSystemSubcategoryGuid"
 
 # 2. Set the SACL recursively
