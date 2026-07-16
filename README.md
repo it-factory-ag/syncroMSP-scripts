@@ -86,14 +86,14 @@ Removes unwanted Win32 and AppX/Store apps from Windows endpoints. Uses the GitH
 ```
 maintenance/remove_apps/
   core.ps1                        ← removal engine (downloaded at runtime)
-  <name>.ps1                      ← SyncroMSP wrapper per app list (upload this)
+  syncro_wrapper_<name>.ps1       ← SyncroMSP wrapper per app list (upload this)
   applists/
     <name>.ps1                    ← app list: $AppxPackages and $Win32Apps arrays
 ```
 
 **Adding a new app list:**
 1. Create `maintenance/remove_apps/applists/<name>.ps1` with `$AppxPackages` and `$Win32Apps` arrays
-2. Copy an existing wrapper (e.g. `vsgn_image_cleanup.ps1`), rename it, and set `$AppList = '<name>'`
+2. Copy an existing wrapper (e.g. `syncro_wrapper_vsgn_image_cleanup.ps1`), rename it to `syncro_wrapper_<name>.ps1`, and set `$AppList = '<name>'`
 3. Push to `main` — existing wrappers in SyncroMSP pick up list changes immediately, no re-upload needed
 4. Upload the new wrapper to SyncroMSP under **Scripting → Scripts**
 
