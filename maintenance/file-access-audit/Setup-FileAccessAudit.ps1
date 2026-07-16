@@ -7,7 +7,7 @@ and "Audit: Force audit policy subcategory settings..." (Enabled) must be applie
 to the server's OU (Domain Controller). This script only checks that, it does not set it.
 
 What this script does:
-  1. Checks whether the "File System" audit subcategory is active (auditpol)
+  1. Prints the current "File System" audit subcategory setting for manual verification (auditpol)
   2. Sets the SACL recursively on $TargetPath (icacls /setaudit)
   3. Grows the Security event log (default 1 GB)
   4. Writes Collect-FileAccess.ps1 and Report-FileAccess.ps1 to $ScriptDir
@@ -34,16 +34,17 @@ if (-not (Test-Path $TargetPath)) {
 }
 
 # 1. Check audit policy
-$auditStatus = auditpol /get /subcategory:"File System" /r | ConvertFrom-Csv
-if ($auditStatus.'Inclusion Setting' -notmatch 'Success') {
-    Write-Warning "Audit subcategory 'File System' is not currently recording 'Success' events. Check GPO 'Object Access -> Audit File System' = Success and 'Force audit policy subcategory settings' = Enabled, then run gpupdate /force."
-} else {
-    Write-Host "Audit policy 'File System' is active (Success)." -ForegroundColor Green
-}
+# Subcategory referenced by GUID, not name - "File System" is only the English display
+# name and auditpol rejects it with ERROR_INVALID_PARAMETER on non-English Windows.
+$fileSystemSubcategoryGuid = "{0CCE921D-69AE-11D9-BED3-505054503030}"
+Write-Host "Current audit setting for the File System subcategory (verify 'Success' is enabled):"
+auditpol /get /subcategory:"$fileSystemSubcategoryGuid"
 
 # 2. Set SACL recursively
+# /setaudit requires an explicit (S) and/or (F) audit-type flag before the permission mask -
+# without it icacls rejects the whole argument as an invalid parameter.
 Write-Host "Setting SACL recursively on '$TargetPath' ..."
-icacls $TargetPath /setaudit "Everyone:(OI)(CI)(RX)" /T /C
+icacls $TargetPath /setaudit "Everyone:(OI)(CI)(S)RX" /T /C
 if ($LASTEXITCODE -ne 0) {
     throw "icacls /setaudit failed (exit code $LASTEXITCODE)."
 }

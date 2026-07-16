@@ -57,14 +57,14 @@ Runs `gpupdate /force` and then reboots the device 60 seconds later — these se
 
 One-time setup, run as Administrator (or via SyncroMSP as SYSTEM — see wrapper below) on the file server itself. Sets up a file-level access statistic for a shared folder: which file, how often, last accessed — no usernames in the export, no per-person monitoring.
 
-Prerequisite (set separately via GPO, this script only checks it — apply to the **Domain Controllers OU** / `Default Domain Controllers Policy` if the target server is a DC): `Object Access -> Audit File System` = Success, and `Audit: Force audit policy subcategory settings...` = Enabled.
+Prerequisite (set separately via GPO, this script only prints the current setting for manual verification — apply to the **Domain Controllers OU** / `Default Domain Controllers Policy` if the target server is a DC): `Object Access -> Audit File System` = Success, and `Audit: Force audit policy subcategory settings...` = Enabled.
 
 ```powershell
 .\Setup-FileAccessAudit.ps1 -TargetPath "C:\_Daten\Daten\07 IT\AVOR-Exelprogramme"
 ```
 
 This:
-1. Checks the `File System` audit subcategory is active
+1. Prints the current `File System` audit subcategory setting (referenced by GUID, not name, since `auditpol` rejects the English name on non-English Windows) — check the output for `Success` yourself
 2. Sets the SACL recursively on `-TargetPath` (`icacls /setaudit`)
 3. Grows the Security event log (default 1 GB) — daily collection avoids losing events to log rotation between weekly reports
 4. Writes `Collect-FileAccess.ps1` (parses event ID 4663 daily, appends to a cumulative CSV) and `Report-FileAccess.ps1` (aggregates the last 7 days) to `-ScriptDir` (default `C:\_admin\FileAccessAudit\Scripts`)
