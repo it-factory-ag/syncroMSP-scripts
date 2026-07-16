@@ -39,19 +39,31 @@ try {
     # every combination tried as "invalid parameter" - using the documented FileSystemAuditRule
     # API instead (matches Microsoft/AWS reference examples for setting file audit SACLs).
     Write-Host "Setting SACL recursively on '$TargetPath' ..."
+    # "Everyone" is the English well-known account name - .NET's SID lookup for that literal
+    # string fails on this German-locale server ("identity references could not be translated").
+    # Use the locale-independent well-known SID (S-1-1-0) instead.
+    $everyoneSid = New-Object System.Security.Principal.SecurityIdentifier("S-1-1-0")
     $auditRule = New-Object System.Security.AccessControl.FileSystemAuditRule(
-        "Everyone", "ReadAndExecute", "ContainerInherit, ObjectInherit", "None", "Success"
+        $everyoneSid, "ReadAndExecute", "ContainerInherit, ObjectInherit", "None", "Success"
     )
 
     $rootAcl = Get-Acl -Path $TargetPath
     $rootAcl.SetAuditRule($auditRule)
     Set-Acl -Path $TargetPath -AclObject $rootAcl
 
-    Get-ChildItem -Path $TargetPath -Recurse -Force | ForEach-Object {
-        $acl = Get-Acl -Path $_.FullName
+    $children = Get-ChildItem -Path $TargetPath -Recurse -Force
+    Write-Host "Applying audit rule to $($children.Count) existing files/folders ..."
+    $i = 0
+    foreach ($child in $children) {
+        $acl = Get-Acl -Path $child.FullName
         $acl.SetAuditRule($auditRule)
-        Set-Acl -Path $_.FullName -AclObject $acl
+        Set-Acl -Path $child.FullName -AclObject $acl
+        $i++
+        if ($i % 200 -eq 0) {
+            Write-Host "  ... $i / $($children.Count) done"
+        }
     }
+    Write-Host "SACL applied to all $i existing files/folders."
 
     # 3. Grow the Security log
     Write-Host "Setting Security log size to $SecurityLogSizeMB MB ..."
@@ -128,6 +140,7 @@ if (`$rows) {
     exit 0
 }
 catch {
-    Rmm-Alert -Category "File Access Audit Setup" -Body "Setup failed for '$TargetPath': $($_.Exception.Message)"
+    Write-Host "ERROR: Setup failed for '$TargetPath': $($_.Exception.Message)" -ForegroundColor Red
+    Write-Host $_.ScriptStackTrace
     exit 1
 }
