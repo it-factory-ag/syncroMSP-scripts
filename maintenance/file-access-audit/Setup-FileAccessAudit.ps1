@@ -126,9 +126,15 @@ $collectScriptContent = @"
 # (Explorer icon/thumbnail probes, the app's own open sequence, antivirus real-time scan) -
 # collapse same-file events within the same minute down to one row so AccessCount reflects
 # actual accesses, not raw event volume.
-`$rows = `$rawRows | Group-Object File, { `$_.Timestamp.ToString('yyyy-MM-dd HH:mm') } | ForEach-Object {
+`$deduped = `$rawRows | Group-Object File, { `$_.Timestamp.ToString('yyyy-MM-dd HH:mm') } | ForEach-Object {
     `$_.Group | Sort-Object Timestamp | Select-Object -First 1
 }
+
+# Format Timestamp as an explicit, unambiguous string before writing - Export-Csv otherwise
+# serializes DateTime using the current session's culture (e.g. German dd.MM.yyyy), which
+# then fails to parse back with a bare [datetime] cast if a later read happens under a
+# different culture (e.g. the scheduled task running as SYSTEM vs. an interactive session).
+`$rows = `$deduped | Select-Object File, @{ Name = 'Timestamp'; Expression = { `$_.Timestamp.ToString('yyyy-MM-dd HH:mm:ss') } }
 
 if (`$rows) {
     `$rows | Export-Csv -Path `$masterCsv -NoTypeInformation -Encoding UTF8 -Delimiter ';' -Append
@@ -142,14 +148,18 @@ $reportScriptPath = Join-Path $ScriptDir "Report-FileAccess.ps1"
 $reportScriptContent = @"
 `$masterCsv = '$masterCsv'
 `$reportOut = Join-Path '$ReportDir' "WeeklyReport_`$(Get-Date -Format 'yyyy-MM-dd').csv"
+# Parse with the exact invariant format Collect-FileAccess.ps1 writes - a bare [datetime]
+# cast depends on the current session's culture and fails to parse the stored string if
+# that differs from whatever culture wrote it (e.g. SYSTEM vs. an interactive session).
+`$tsFormat = 'yyyy-MM-dd HH:mm:ss'
 
-`$data = Import-Csv `$masterCsv -Delimiter ';' | Where-Object { [datetime]`$_.Timestamp -ge (Get-Date).AddDays(-7) }
+`$data = Import-Csv `$masterCsv -Delimiter ';' | Where-Object { [datetime]::ParseExact(`$_.Timestamp, `$tsFormat, `$null) -ge (Get-Date).AddDays(-7) }
 
 `$data | Group-Object File | ForEach-Object {
     [PSCustomObject]@{
         File         = `$_.Name
         AccessCount  = `$_.Count
-        LastAccessed = (`$_.Group | Sort-Object { [datetime]`$_.Timestamp } -Descending | Select-Object -First 1).Timestamp
+        LastAccessed = (`$_.Group | Sort-Object { [datetime]::ParseExact(`$_.Timestamp, `$tsFormat, `$null) } -Descending | Select-Object -First 1).Timestamp
     }
 } | Sort-Object AccessCount -Descending |
   Export-Csv -Path `$reportOut -NoTypeInformation -Encoding UTF8 -Delimiter ';'
