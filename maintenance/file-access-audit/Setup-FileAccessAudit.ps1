@@ -13,7 +13,9 @@ What this script does:
      registry value), then prints the resulting setting for verification
   2. Sets the SACL recursively on $TargetPath (Get-Acl/Set-Acl with a FileSystemAuditRule)
   3. Grows the Security event log (default 1 GB)
-  4. Writes Collect-FileAccess.ps1 and Report-FileAccess.ps1 to $ScriptDir
+  4. Writes Collect-FileAccess.ps1 (filters out computer/service accounts like "SRV$" or
+     SYSTEM, so AV/backup/indexer scans don't get counted as file accesses) and
+     Report-FileAccess.ps1 to $ScriptDir
   5. Registers the scheduled tasks for daily collection and the weekly report
 #>
 
@@ -115,9 +117,15 @@ $collectScriptContent = @"
     `$xml  = [xml]`$e.ToXml()
     `$data = @{}
     `$xml.Event.EventData.Data | ForEach-Object { `$data[`$_.Name] = `$_.'#text' }
-    `$obj = `$data['ObjectName']
+    `$obj  = `$data['ObjectName']
+    `$user = `$data['SubjectUserName']
 
-    if (`$obj -like "`$targetPath\*" -and `$obj -notlike '*~`$*' -and `$obj -notlike '*.tmp') {
+    # Exclude computer/service accounts (AV scans, backup jobs, Search Indexer, etc. run
+    # under SYSTEM and are audited as the local machine's own computer account, e.g. "SRV$")
+    # - only count events triggered by an actual person, without storing who in the CSV.
+    `$isSystemAccount = `$user -like '*$' -or `$user -in @('SYSTEM', 'LOCAL SERVICE', 'NETWORK SERVICE')
+
+    if (`$obj -like "`$targetPath\*" -and `$obj -notlike '*~`$*' -and `$obj -notlike '*.tmp' -and -not `$isSystemAccount) {
         [PSCustomObject]@{ File = `$obj; Timestamp = `$e.TimeCreated }
     }
 }
