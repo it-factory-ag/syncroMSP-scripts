@@ -8,7 +8,7 @@ to the server's OU (Domain Controller). This script only checks that, it does no
 
 What this script does:
   1. Prints the current "File System" audit subcategory setting for manual verification (auditpol)
-  2. Sets the SACL recursively on $TargetPath (icacls /setaudit)
+  2. Sets the SACL recursively on $TargetPath (Get-Acl/Set-Acl with a FileSystemAuditRule)
   3. Grows the Security event log (default 1 GB)
   4. Writes Collect-FileAccess.ps1 and Report-FileAccess.ps1 to $ScriptDir
   5. Registers the scheduled tasks for daily collection and the weekly report
@@ -40,13 +40,23 @@ $fileSystemSubcategoryGuid = "{0CCE921D-69AE-11D9-BED3-505054503030}"
 Write-Host "Current audit setting for the File System subcategory (verify 'Success' is enabled):"
 auditpol /get /subcategory:"$fileSystemSubcategoryGuid"
 
-# 2. Set SACL recursively
-# /setaudit requires an explicit (S) and/or (F) audit-type flag before the permission mask -
-# without it icacls rejects the whole argument as an invalid parameter.
+# 2. Set the SACL recursively
+# icacls /setaudit has no documented flag syntax on current Microsoft docs and rejected
+# every combination tried as "invalid parameter" - using the documented FileSystemAuditRule
+# API instead (matches Microsoft/AWS reference examples for setting file audit SACLs).
 Write-Host "Setting SACL recursively on '$TargetPath' ..."
-icacls $TargetPath /setaudit "Everyone:(OI)(CI)(S)RX" /T /C
-if ($LASTEXITCODE -ne 0) {
-    throw "icacls /setaudit failed (exit code $LASTEXITCODE)."
+$auditRule = New-Object System.Security.AccessControl.FileSystemAuditRule(
+    "Everyone", "ReadAndExecute", "ContainerInherit, ObjectInherit", "None", "Success"
+)
+
+$rootAcl = Get-Acl -Path $TargetPath
+$rootAcl.SetAuditRule($auditRule)
+Set-Acl -Path $TargetPath -AclObject $rootAcl
+
+Get-ChildItem -Path $TargetPath -Recurse -Force | ForEach-Object {
+    $acl = Get-Acl -Path $_.FullName
+    $acl.SetAuditRule($auditRule)
+    Set-Acl -Path $_.FullName -AclObject $acl
 }
 
 # 3. Grow the Security log

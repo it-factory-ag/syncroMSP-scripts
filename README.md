@@ -65,7 +65,7 @@ Prerequisite (set separately via GPO, this script only prints the current settin
 
 This:
 1. Prints the current `File System` audit subcategory setting (referenced by GUID, not name, since `auditpol` rejects the English name on non-English Windows) — check the output for `Success` yourself
-2. Sets the SACL recursively on `-TargetPath` (`icacls /setaudit`)
+2. Sets the SACL recursively on `-TargetPath` (`Get-Acl`/`Set-Acl` with a `FileSystemAuditRule` — `icacls /setaudit` has no documented flag syntax and consistently failed as "invalid parameter")
 3. Grows the Security event log (default 1 GB) — daily collection avoids losing events to log rotation between weekly reports
 4. Writes `Collect-FileAccess.ps1` (parses event ID 4663 daily, appends to a cumulative CSV) and `Report-FileAccess.ps1` (aggregates the last 7 days) to `-ScriptDir` (default `C:\_admin\FileAccessAudit\Scripts`)
 5. Registers two scheduled tasks (SYSTEM): daily collection and a weekly report
