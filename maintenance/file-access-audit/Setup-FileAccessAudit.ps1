@@ -49,20 +49,27 @@ Write-Host "Setting SACL recursively on '$TargetPath' ..."
 # string fails on non-English Windows ("identity references could not be translated").
 # Use the locale-independent well-known SID (S-1-1-0) instead.
 $everyoneSid = New-Object System.Security.Principal.SecurityIdentifier("S-1-1-0")
-$auditRule = New-Object System.Security.AccessControl.FileSystemAuditRule(
+# InheritanceFlags other than "None" are only valid on directories - applying a rule with
+# ContainerInherit/ObjectInherit to a plain file throws "Es können keine Flags gesetzt
+# werden" (inheritanceFlags). Directories and files each need their own rule object.
+$dirAuditRule = New-Object System.Security.AccessControl.FileSystemAuditRule(
     $everyoneSid, "ReadAndExecute", "ContainerInherit, ObjectInherit", "None", "Success"
+)
+$fileAuditRule = New-Object System.Security.AccessControl.FileSystemAuditRule(
+    $everyoneSid, "ReadAndExecute", "None", "None", "Success"
 )
 
 $rootAcl = Get-Acl -Path $TargetPath
-$rootAcl.SetAuditRule($auditRule)
+$rootAcl.SetAuditRule($dirAuditRule)
 Set-Acl -Path $TargetPath -AclObject $rootAcl
 
 $children = Get-ChildItem -Path $TargetPath -Recurse -Force
 Write-Host "Applying audit rule to $($children.Count) existing files/folders ..."
 $i = 0
 foreach ($child in $children) {
+    $rule = if ($child.PSIsContainer) { $dirAuditRule } else { $fileAuditRule }
     $acl = Get-Acl -Path $child.FullName
-    $acl.SetAuditRule($auditRule)
+    $acl.SetAuditRule($rule)
     Set-Acl -Path $child.FullName -AclObject $acl
     $i++
     if ($i % 200 -eq 0) {
