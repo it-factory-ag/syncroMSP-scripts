@@ -14,8 +14,9 @@ What this script does:
   2. Sets the SACL recursively on $TargetPath (Get-Acl/Set-Acl with a FileSystemAuditRule)
   3. Grows the Security event log (default 1 GB)
   4. Writes Collect-FileAccess.ps1 (filters out computer/service accounts like "SRV$" or
-     SYSTEM, so AV/backup/indexer scans don't get counted as file accesses) and
-     Report-FileAccess.ps1 to $ScriptDir
+     SYSTEM, so AV/backup/indexer scans don't get counted as file accesses; also skips
+     directory-level events so folder browsing / this setup script's own recursive SACL
+     sweep isn't counted either) and Report-FileAccess.ps1 to $ScriptDir
   5. Registers the scheduled tasks for daily collection and the weekly report
 #>
 
@@ -125,7 +126,11 @@ $collectScriptContent = @"
     # - only count events triggered by an actual person, without storing who in the CSV.
     `$isSystemAccount = `$user -like '*$' -or `$user -in @('SYSTEM', 'LOCAL SERVICE', 'NETWORK SERVICE')
 
-    if (`$obj -like "`$targetPath\*" -and `$obj -notlike '*~`$*' -and `$obj -notlike '*.tmp' -and -not `$isSystemAccount) {
+    # Directory-level 4663 events (folder opened/browsed, or the recursive Get-Acl/Set-Acl
+    # sweep this setup script itself performs) aren't a file access - only count leaf files.
+    `$isFile = Test-Path -LiteralPath `$obj -PathType Leaf
+
+    if (`$obj -like "`$targetPath\*" -and `$obj -notlike '*~`$*' -and `$obj -notlike '*.tmp' -and -not `$isSystemAccount -and `$isFile) {
         [PSCustomObject]@{ File = `$obj; Timestamp = `$e.TimeCreated }
     }
 }

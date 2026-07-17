@@ -67,7 +67,7 @@ This:
 1. Sets the `File System` audit subcategory to Success (referenced by GUID, not name, since `auditpol` rejects the English name on non-English Windows), then prints the result for verification
 2. Sets the SACL recursively on `-TargetPath` (`Get-Acl`/`Set-Acl` with a `FileSystemAuditRule` — `icacls /setaudit` has no documented flag syntax and consistently failed as "invalid parameter")
 3. Grows the Security event log (default 1 GB) — daily collection avoids losing events to log rotation between weekly reports
-4. Writes `Collect-FileAccess.ps1` (parses event ID 4663 daily, filters out computer/service accounts like `SRV$` or `SYSTEM` so AV/backup/indexer scans aren't counted as accesses, appends to a cumulative CSV) and `Report-FileAccess.ps1` (aggregates the last 7 days) to `-ScriptDir` (default `C:\_admin\FileAccessAudit\Scripts`)
+4. Writes `Collect-FileAccess.ps1` (parses event ID 4663 daily, filters out computer/service accounts like `SRV$` or `SYSTEM` so AV/backup/indexer scans aren't counted as accesses, skips directory-level events so folder browsing / this setup script's own recursive SACL sweep isn't counted either, appends to a cumulative CSV) and `Report-FileAccess.ps1` (aggregates the last 7 days) to `-ScriptDir` (default `C:\_admin\FileAccessAudit\Scripts`)
 5. Registers two scheduled tasks (SYSTEM): daily collection and a weekly report
 
 Note: `raw.githubusercontent.com` sits behind a CDN and caches responses briefly (~5 min) — the wrapper below adds a cache-busting query string, but if you suspect you're seeing stale content, `curl` the raw URL yourself to check what's actually being served before relying on it.
