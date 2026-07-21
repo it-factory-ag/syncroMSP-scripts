@@ -19,6 +19,7 @@ PowerShell scripts deployed as SyncroMSP RMM scripts. All scripts use `Import-Mo
 | `maintenance/vpn_first_logon_profile_fix.ps1` | Sets local policy to fix failed first domain login over VPN: always wait for network at logon + disable GPO slow-link detection, then gpupdate + reboots the device |
 | `maintenance/remove_apps/` | Removes unwanted Win32 and AppX apps based on a per-customer app list |
 | `maintenance/file-access-audit/Setup-FileAccessAudit.ps1` | One-time setup on a file server: sets SACL, grows the Security log, deploys a daily collector + weekly report script, registers scheduled tasks — file-level access statistics, no per-user monitoring |
+| `maintenance/vsgn_printer_setup_d11_32.ps1` | VSGN — sets up the "D11-32 MFP Container MFP M430f" network printer (HP LaserJet Enterprise MFP M430, IP 192.168.0.32) via native PowerShell printing cmdlets |
 
 ---
 
@@ -75,6 +76,16 @@ Note: `raw.githubusercontent.com` sits behind a CDN and caches responses briefly
 **`maintenance/file-access-audit/syncro_wrapper_avor_exelprogramme.ps1` — this is the file to copy into the SyncroMSP web interface.** It's a thin wrapper: downloads the current `Setup-FileAccessAudit.ps1` from this repo and runs it with `-TargetPath` hardcoded to the AVOR-Exelprogramme share on `srv`. Follows the standard SyncroMSP script conventions (`Import-Module $env:SyncroModule`, `Rmm-Alert` on failure, `exit 0`/`exit 1`). Paste its contents into Syncro under **Scripting → Scripts** and run once against the `srv` asset — the daily/weekly scheduled tasks it creates then run independently of Syncro from that point on. Since it always fetches the current version at runtime, no manual sync with `Setup-FileAccessAudit.ps1` is needed.
 
 Output: cumulative raw CSV and dated weekly report CSVs under `-ReportDir` (default `C:\_admin\FileAccessAudit\Reports`).
+
+---
+
+### `maintenance/vsgn_printer_setup_d11_32.ps1`
+
+Sets up the "D11-32 MFP Container MFP M430f" HP LaserJet Enterprise MFP M430 network printer (port `IP_192.168.0.32`) at customer VSGN. Replaces an older cscript/`prnmngr.vbs` + `install.exe` batch approach that had a bug: `cd /temp` at the end is not a valid way to switch to `C:\temp` (should be `cd /d C:\temp`), so cleanup ran from inside `C:\temp\upd` instead and silently left temp files behind.
+
+Assumes the driver package (`upd.zip`, from [HP's M430 series driver page](https://support.hp.com/us-en/drivers/hp-laserjet-enterprise-mfp-m430-series/29252393)) is already staged at `C:\temp\upd.zip` via the SyncroMSP script's file attachment before the script runs — no download step needed. The `.inf` file is located automatically inside the extracted package (searched recursively, driver name parsed out of the `.inf`'s model section), so it isn't tied to one exact package layout.
+
+Removes any existing printer/port with the same name first (idempotent), extracts the driver, installs it via `Add-PrinterDriver` (falling back to staging it with `pnputil /add-driver` first if that fails), then creates the port and printer via `Add-PrinterPort`/`Add-Printer`. Cleans up the extracted files and the zip afterward.
 
 ---
 
