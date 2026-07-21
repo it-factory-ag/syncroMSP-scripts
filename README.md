@@ -87,6 +87,8 @@ Assumes the driver package (`upd.zip`, from [HP's M430 series driver page](https
 
 Removes any existing printer/port with the same name first (idempotent), extracts the driver, installs it via `Add-PrinterDriver` (falling back to staging it with `pnputil /add-driver` first if that fails), then creates the port and printer via `Add-PrinterPort`/`Add-Printer`. Cleans up the extracted files and the zip afterward.
 
+Uses the GitHub wrapper pattern: **`maintenance/syncro_wrapper_vsgn_printer_d11_32.ps1` is the file to copy into SyncroMSP.** It downloads and runs the current `vsgn_printer_setup_d11_32.ps1` from this repo, so fixes pushed here take effect without editing the wrapper again. The Required File (`upd.zip` → `C:\temp\upd.zip`) still needs to be attached to the wrapper script itself in Syncro.
+
 ---
 
 ### `maintenance/remove_apps/`
