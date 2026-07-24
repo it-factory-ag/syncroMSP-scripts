@@ -75,26 +75,34 @@ try {
     if (-not $infFiles) {
         throw "No .inf file found inside '$ZipPath'."
     }
+    Write-Host "Found $($infFiles.Count) .inf file(s):"
+    $infFiles | ForEach-Object { Write-Host "  $($_.FullName)" }
 
-    $installedDriverName = $null
+    # Primary path: HP's Class=Printer .inf packages register themselves with the
+    # print spooler as a side effect of "pnputil /add-driver /install" (the class
+    # installer calls the spooler API directly) - so diff Get-PrinterDriver before
+    # and after staging to find the name Windows actually registered it under,
+    # rather than guessing the name ourselves from the .inf's model section.
+    $driverNamesBefore = @(Get-PrinterDriver -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Name)
     foreach ($inf in $infFiles) {
-        $candidates = Get-InfDriverCandidates -InfPath $inf.FullName
-        foreach ($driverName in $candidates) {
-            try {
-                Add-PrinterDriver -Name $driverName -InfPath $inf.FullName -ErrorAction Stop
-                $installedDriverName = $driverName
-                break
-            } catch {
-                continue
-            }
-        }
-        if ($installedDriverName) { break }
+        Write-Host "Staging driver via pnputil: $($inf.FullName)"
+        pnputil.exe /add-driver "$($inf.FullName)" /install | Out-Null
+    }
+    $driverNamesAfter = @(Get-PrinterDriver -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Name)
+    $newDriverNames = @($driverNamesAfter | Where-Object { $_ -notin $driverNamesBefore })
+    Write-Host "New printer driver(s) registered by pnputil: $($newDriverNames -join ', ')"
+
+    $installedDriverName = $newDriverNames | Where-Object { $_ -match 'M430' } | Select-Object -First 1
+    if (-not $installedDriverName) {
+        $installedDriverName = $newDriverNames | Select-Object -First 1
     }
 
+    # Fallback: package did not self-register (e.g. a driver-only .inf without the
+    # printer class installer) - parse candidate driver names out of the .inf's
+    # model section ourselves and register them explicitly.
     if (-not $installedDriverName) {
-        Write-Host "Direct driver install failed for all candidates, staging via pnputil and retrying..."
+        Write-Host "pnputil staging alone did not register a printer driver, trying Add-PrinterDriver with names parsed from the .inf files..."
         foreach ($inf in $infFiles) {
-            pnputil /add-driver "$($inf.FullName)" /install | Out-Null
             $candidates = Get-InfDriverCandidates -InfPath $inf.FullName
             foreach ($driverName in $candidates) {
                 try {
