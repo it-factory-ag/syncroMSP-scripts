@@ -1,6 +1,7 @@
 <#
 VSGN - sets up the "D11-32 MFP Container MFP M430f" network printer (HP LaserJet
-Enterprise MFP M430 series, IP 192.168.0.32).
+Enterprise MFP M430 series, IP 192.168.0.32) using the HP Universal Print Driver
+(PCL6), downloaded directly from HP at runtime.
 
 Replaces the old cscript/prnmngr.vbs + install.exe batch approach with native
 PowerShell printing cmdlets. That old script had two bugs: `cd /temp` at the end
@@ -9,12 +10,14 @@ ran from inside C:\temp\upd instead and silently failed to remove the temp files
 and `install.exe` was invoked with hardcoded switches with no error handling, so a
 failed extraction or driver mismatch went unnoticed.
 
-Assumes upd.zip (HP driver package, from
-https://support.hp.com/us-en/drivers/hp-laserjet-enterprise-mfp-m430-series/29252393)
-is already staged at C:\temp\upd.zip via the SyncroMSP script file attachment
-before this script runs. The driver's .inf is located automatically inside the
-package, so this keeps working across different driver package layouts without
-needing the exact .inf filename or driver name hardcoded.
+Downloads the driver zip from ftp.hp.com (Akamai-hosted, stable static file -
+unlike the JS-rendered support.hp.com driver pages, which can't be scripted
+against) instead of relying on a SyncroMSP script file attachment, so no
+per-script file upload/maintenance is needed in Syncro. The driver's .inf is
+located automatically inside the package, so this keeps working across
+different driver package layouts without needing the exact .inf filename or
+driver name hardcoded. Bump $DriverUrl below when HP releases a newer UPD
+version.
 #>
 
 Import-Module $env:SyncroModule
@@ -22,6 +25,7 @@ Import-Module $env:SyncroModule
 $PrinterName = "D11-32 MFP Container MFP M430f"
 $PrinterIP   = "192.168.0.32"
 $PortName    = "IP_$PrinterIP"
+$DriverUrl   = "https://ftp.hp.com/pub/softlib/software13/printers/UPD/upd-pcl6-win11-x64-8.2.0.26819.zip"
 $ZipPath     = "C:\temp\upd.zip"
 $ExtractDir  = "C:\temp\upd"
 
@@ -55,11 +59,12 @@ function Get-InfDriverCandidates {
 }
 
 try {
-    if (-not (Test-Path $ZipPath)) {
-        throw "Driver package not found at '$ZipPath' - expected it to be staged there via the SyncroMSP script file attachment."
-    }
-
     Write-Host "=== VSGN Printer Setup: $PrinterName ==="
+
+    Write-Host "Downloading driver package from $DriverUrl..."
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+    New-Item -Path (Split-Path $ZipPath) -ItemType Directory -Force | Out-Null
+    (New-Object Net.WebClient).DownloadFile($DriverUrl, $ZipPath)
 
     Write-Host "Removing existing printer/port if present..."
     Get-Printer -Name $PrinterName -ErrorAction SilentlyContinue | Remove-Printer -ErrorAction SilentlyContinue

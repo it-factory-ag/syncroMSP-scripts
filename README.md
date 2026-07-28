@@ -83,11 +83,11 @@ Output: cumulative raw CSV and dated weekly report CSVs under `-ReportDir` (defa
 
 Sets up the "D11-32 MFP Container MFP M430f" HP LaserJet Enterprise MFP M430 network printer (port `IP_192.168.0.32`) at customer VSGN. Replaces an older cscript/`prnmngr.vbs` + `install.exe` batch approach that had a bug: `cd /temp` at the end is not a valid way to switch to `C:\temp` (should be `cd /d C:\temp`), so cleanup ran from inside `C:\temp\upd` instead and silently left temp files behind.
 
-Assumes the driver package (`upd.zip`, from [HP's M430 series driver page](https://support.hp.com/us-en/drivers/hp-laserjet-enterprise-mfp-m430-series/29252393)) is already staged at `C:\temp\upd.zip` via the SyncroMSP script's file attachment before the script runs — no download step needed. The `.inf` file is located automatically inside the extracted package (searched recursively, driver name parsed out of the `.inf`'s model section), so it isn't tied to one exact package layout.
+Downloads the HP Universal Print Driver (PCL6) directly from `ftp.hp.com` at runtime (`$DriverUrl` in the script — bump this when HP releases a newer UPD version) to `C:\temp\upd.zip`. No SyncroMSP file attachment needed: `ftp.hp.com` is HP's stable static file host, unlike the JS-rendered `support.hp.com` driver pages which can't be scripted against. The `.inf` file is located automatically inside the extracted package (searched recursively; the driver is registered via `pnputil /add-driver`, diffing `Get-PrinterDriver` before/after to find the name Windows actually registered it under, with a fallback that parses candidate names out of the `.inf`'s model section directly), so it isn't tied to one exact package layout.
 
-Removes any existing printer/port with the same name first (idempotent), extracts the driver, installs it via `Add-PrinterDriver` (falling back to staging it with `pnputil /add-driver` first if that fails), then creates the port and printer via `Add-PrinterPort`/`Add-Printer`. Cleans up the extracted files and the zip afterward.
+Removes any existing printer/port with the same name first (idempotent), then creates the port and printer via `Add-PrinterPort`/`Add-Printer`. Cleans up the extracted files and the zip afterward.
 
-Uses the GitHub wrapper pattern: **`maintenance/syncro_wrapper_vsgn_printer_d11_32.ps1` is the file to copy into SyncroMSP.** It downloads and runs the current `vsgn_printer_setup_d11_32.ps1` from this repo, so fixes pushed here take effect without editing the wrapper again. The Required File (`upd.zip` → `C:\temp\upd.zip`) still needs to be attached to the wrapper script itself in Syncro.
+Uses the GitHub wrapper pattern: **`maintenance/syncro_wrapper_vsgn_printer_d11_32.ps1` is the file to copy into SyncroMSP.** It downloads and runs the current `vsgn_printer_setup_d11_32.ps1` from this repo, so fixes pushed here take effect without editing the wrapper again. No Required File attachment is needed.
 
 ---
 

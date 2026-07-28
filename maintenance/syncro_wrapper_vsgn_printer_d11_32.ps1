@@ -1,13 +1,12 @@
 <#
 >>> THIS IS THE SCRIPT TO COPY INTO THE SYNCROMSP WEB INTERFACE <<<
-Paste this whole file into Syncro under Scripting -> Scripts. Also add a
-Required File on the script: Destination File Name = C:\temp\upd.zip,
-File = the uploaded HP M430 driver package (upd.zip).
+Paste this whole file into Syncro under Scripting -> Scripts. No Required File
+attachment needed - the driver zip is downloaded directly from HP at runtime.
 
 This is a thin wrapper: it pulls the current vsgn_printer_setup_d11_32.ps1 from
 this repo and executes it locally, so future fixes in the repo take effect
 without editing this wrapper again. That script is the source of truth - keep
-this wrapper in sync if its required files/paths change.
+this wrapper in sync if its parameters change.
 #>
 
 Import-Module $env:SyncroModule
