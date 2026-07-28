@@ -91,7 +91,8 @@ try {
     $driverNamesBefore = @(Get-PrinterDriver -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Name)
     foreach ($inf in $infFiles) {
         Write-Host "Staging driver via pnputil: $($inf.FullName)"
-        pnputil.exe /add-driver "$($inf.FullName)" /install | Out-Null
+        $pnputilOutput = & pnputil.exe /add-driver "$($inf.FullName)" /install 2>&1
+        $pnputilOutput | ForEach-Object { Write-Host "  $_" }
     }
     $driverNamesAfter = @(Get-PrinterDriver -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Name)
     $newDriverNames = @($driverNamesAfter | Where-Object { $_ -notin $driverNamesBefore })
@@ -109,12 +110,14 @@ try {
         Write-Host "pnputil staging alone did not register a printer driver, trying Add-PrinterDriver with names parsed from the .inf files..."
         foreach ($inf in $infFiles) {
             $candidates = Get-InfDriverCandidates -InfPath $inf.FullName
+            Write-Host "$($inf.Name): candidate driver name(s) found: $($candidates -join ' | ')"
             foreach ($driverName in $candidates) {
                 try {
                     Add-PrinterDriver -Name $driverName -InfPath $inf.FullName -ErrorAction Stop
                     $installedDriverName = $driverName
                     break
                 } catch {
+                    Write-Host "  Add-PrinterDriver failed for '$driverName': $($_.Exception.Message)"
                     continue
                 }
             }
