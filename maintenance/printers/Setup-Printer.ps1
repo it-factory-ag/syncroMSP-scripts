@@ -1,33 +1,48 @@
 <#
-VSGN - sets up the "D11-32 MFP Container MFP M430f" network printer (HP LaserJet
-Enterprise MFP M430 series, IP 192.168.0.32) using the HP Universal Print Driver
-(PCL6), downloaded directly from HP at runtime.
+Sets up a network printer using the HP Universal Print Driver (PCL6), downloaded
+directly from HP at runtime. Not intended as a direct SyncroMSP endpoint script -
+run indirectly via a thin per-printer syncro_wrapper_*.ps1 (see
+syncro_wrapper_vsgn_d11_32.ps1 for an example), which is what actually gets pasted
+into Syncro. This script is the source of truth - keep wrappers in sync if its
+parameters change.
 
-Replaces the old cscript/prnmngr.vbs + install.exe batch approach with native
-PowerShell printing cmdlets. That old script had two bugs: `cd /temp` at the end
-is not a valid way to switch to C:\temp (should be `cd /d C:\temp`), so cleanup
-ran from inside C:\temp\upd instead and silently failed to remove the temp files;
-and `install.exe` was invoked with hardcoded switches with no error handling, so a
-failed extraction or driver mismatch went unnoticed.
+Originally written for a single VSGN printer, generalized so the same driver
+logic can be reused for other printers/customers without duplicating it per
+wrapper.
 
 Downloads the driver zip from ftp.hp.com (Akamai-hosted, stable static file -
 unlike the JS-rendered support.hp.com driver pages, which can't be scripted
-against) instead of relying on a SyncroMSP script file attachment, so no
-per-script file upload/maintenance is needed in Syncro. The driver's .inf is
-located automatically inside the package, so this keeps working across
-different driver package layouts without needing the exact .inf filename or
-driver name hardcoded. Bump $DriverUrl below when HP releases a newer UPD
-version.
+against). Bump -DriverUrl's default when HP releases a newer UPD version.
+
+Stages every .inf in the package via pnputil (trusting the HP signing
+certificate first - unattended pnputil otherwise rejects it with "the
+publisher of an Authenticode-signed catalog has not yet been established as
+trusted", since that trust is normally granted via an interactive
+click-through dialog that can't appear when running as SYSTEM). Windows
+republishes each staged .inf under C:\Windows\INF\oemXX.inf - Add-PrinterDriver
+has to be pointed at that published copy, not the original extracted file, or
+it fails with a generic "parameter is incorrect" (HRESULT 0x80070057). Driver
+names are parsed out of the .inf's model section (skipping the [Manufacturer]
+section, which has the same "name = target, arch" shape but isn't a model
+entry) since the exact name varies per driver package and isn't worth
+hardcoding.
 #>
 
-Import-Module $env:SyncroModule
+param(
+    [Parameter(Mandatory = $true)]
+    [string]$PrinterName,
 
-$PrinterName   = "D11-32 MFP Container MFP M430f"
-$PrinterIP     = "192.168.0.32"
-$PortName      = "IP_$PrinterIP"
-$DriverUrl     = "https://ftp.hp.com/pub/softlib/software13/printers/UPD/upd-pcl6-win11-x64-8.2.0.26819.zip"
-$DriverZipPath = "C:\temp\hp_upd_pcl6.zip"
-$ExtractDir    = "C:\temp\hp_upd_pcl6"
+    [Parameter(Mandatory = $true)]
+    [string]$PrinterIP,
+
+    [string]$PortName = "IP_$PrinterIP",
+
+    [string]$DriverUrl = "https://ftp.hp.com/pub/softlib/software13/printers/UPD/upd-pcl6-win11-x64-8.2.0.26819.zip",
+
+    [string]$DriverZipPath = "C:\temp\hp_upd_pcl6.zip",
+
+    [string]$ExtractDir = "C:\temp\hp_upd_pcl6"
+)
 
 function Get-InfDriverCandidates {
     param([string]$InfPath)
@@ -77,15 +92,18 @@ function Get-PnpUtilPublishedInfPath {
 }
 
 try {
-    Write-Host "=== VSGN Printer Setup: $PrinterName ==="
+    Write-Host "=== Printer Setup: $PrinterName ==="
 
     Write-Host "Downloading driver package from $DriverUrl..."
     [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
     New-Item -Path (Split-Path $DriverZipPath) -ItemType Directory -Force | Out-Null
     (New-Object Net.WebClient).DownloadFile($DriverUrl, $DriverZipPath)
 
-    Write-Host "Removing existing printer/port if present..."
-    Get-Printer -Name $PrinterName -ErrorAction SilentlyContinue | Remove-Printer -ErrorAction SilentlyContinue
+    # Match on port (IP), not just name, so a printer left over under a
+    # previous/renamed -PrinterName on this same IP still gets cleaned up -
+    # a printer must be removed before its port can be removed.
+    Write-Host "Removing existing printer(s) on '$PrinterName' or port '$PortName' if present..."
+    Get-Printer -ErrorAction SilentlyContinue | Where-Object { $_.Name -eq $PrinterName -or $_.PortName -eq $PortName } | Remove-Printer -ErrorAction SilentlyContinue
     Get-PrinterPort -Name $PortName -ErrorAction SilentlyContinue | Remove-PrinterPort -ErrorAction SilentlyContinue
 
     if (Test-Path $ExtractDir) {
