@@ -13,7 +13,7 @@ Import-Module $env:SyncroModule
 
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
-$url       = "https://raw.githubusercontent.com/it-factory-ag/syncroMSP-scripts/main/maintenance/vsgn_printer_setup_d11_32.ps1?nocache=$([Guid]::NewGuid())"
+$url       = "https://raw.githubusercontent.com/it-factory-ag/syncroMSP-scripts/main/maintenance/printers/vsgn_printer_setup_d11_32.ps1?nocache=$([Guid]::NewGuid())"
 $localCopy = Join-Path $env:TEMP "vsgn_printer_setup_d11_32.ps1"
 
 try {

@@ -19,7 +19,7 @@ PowerShell scripts deployed as SyncroMSP RMM scripts. All scripts use `Import-Mo
 | `maintenance/vpn_first_logon_profile_fix.ps1` | Sets local policy to fix failed first domain login over VPN: always wait for network at logon + disable GPO slow-link detection, then gpupdate + reboots the device |
 | `maintenance/remove_apps/` | Removes unwanted Win32 and AppX apps based on a per-customer app list |
 | `maintenance/file-access-audit/Setup-FileAccessAudit.ps1` | One-time setup on a file server: sets SACL, grows the Security log, deploys a daily collector + weekly report script, registers scheduled tasks — file-level access statistics, no per-user monitoring |
-| `maintenance/vsgn_printer_setup_d11_32.ps1` | VSGN — sets up the "D11-32 MFP Container MFP M430f" network printer (HP LaserJet Enterprise MFP M430, IP 192.168.0.32) via native PowerShell printing cmdlets |
+| `maintenance/printers/vsgn_printer_setup_d11_32.ps1` | VSGN — sets up the "D11-32 MFP Container MFP M430f" network printer (HP LaserJet Enterprise MFP M430, IP 192.168.0.32) via native PowerShell printing cmdlets |
 
 ---
 
@@ -79,7 +79,7 @@ Output: cumulative raw CSV and dated weekly report CSVs under `-ReportDir` (defa
 
 ---
 
-### `maintenance/vsgn_printer_setup_d11_32.ps1`
+### `maintenance/printers/vsgn_printer_setup_d11_32.ps1`
 
 Sets up the "D11-32 MFP Container MFP M430f" HP LaserJet Enterprise MFP M430 network printer (port `IP_192.168.0.32`) at customer VSGN. Replaces an older cscript/`prnmngr.vbs` + `install.exe` batch approach that had a bug: `cd /temp` at the end is not a valid way to switch to `C:\temp` (should be `cd /d C:\temp`), so cleanup ran from inside `C:\temp\upd` instead and silently left temp files behind.
 
@@ -87,7 +87,7 @@ Downloads the HP Universal Print Driver (PCL6) directly from `ftp.hp.com` at run
 
 Removes any existing printer/port with the same name first (idempotent), then creates the port and printer via `Add-PrinterPort`/`Add-Printer`. Cleans up the extracted files and the zip afterward.
 
-Uses the GitHub wrapper pattern: **`maintenance/syncro_wrapper_vsgn_printer_d11_32.ps1` is the file to copy into SyncroMSP.** It downloads and runs the current `vsgn_printer_setup_d11_32.ps1` from this repo, so fixes pushed here take effect without editing the wrapper again. No Required File attachment is needed.
+Uses the GitHub wrapper pattern: **`maintenance/printers/syncro_wrapper_vsgn_printer_d11_32.ps1` is the file to copy into SyncroMSP.** It downloads and runs the current `vsgn_printer_setup_d11_32.ps1` from this repo, so fixes pushed here take effect without editing the wrapper again. No Required File attachment is needed.
 
 ---
 
