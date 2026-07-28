@@ -25,6 +25,6 @@ try {
     exit $LASTEXITCODE
 }
 catch {
-    Rmm-Alert -Category "VSGN Printer Setup" -Body "Wrapper failed to download/run vsgn_printer_setup_d11_32.ps1: $($_.Exception.Message)"
+    Write-Host "ERROR: Wrapper failed to download/run vsgn_printer_setup_d11_32.ps1: $($_.Exception.Message)"
     exit 1
 }

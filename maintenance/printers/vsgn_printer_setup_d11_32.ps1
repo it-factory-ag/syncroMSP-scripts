@@ -145,6 +145,6 @@ try {
     exit 0
 }
 catch {
-    Rmm-Alert -Category "VSGN Printer Setup" -Body "Failed to set up printer '$PrinterName': $($_.Exception.Message)"
+    Write-Host "ERROR: Failed to set up printer '$PrinterName': $($_.Exception.Message)"
     exit 1
 }
