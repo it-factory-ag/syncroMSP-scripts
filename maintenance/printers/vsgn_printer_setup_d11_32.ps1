@@ -22,12 +22,12 @@ version.
 
 Import-Module $env:SyncroModule
 
-$PrinterName = "D11-32 MFP Container MFP M430f"
-$PrinterIP   = "192.168.0.32"
-$PortName    = "IP_$PrinterIP"
-$DriverUrl   = "https://ftp.hp.com/pub/softlib/software13/printers/UPD/upd-pcl6-win11-x64-8.2.0.26819.zip"
-$ZipPath     = "C:\temp\upd.zip"
-$ExtractDir  = "C:\temp\upd"
+$PrinterName   = "D11-32 MFP Container MFP M430f"
+$PrinterIP     = "192.168.0.32"
+$PortName      = "IP_$PrinterIP"
+$DriverUrl     = "https://ftp.hp.com/pub/softlib/software13/printers/UPD/upd-pcl6-win11-x64-8.2.0.26819.zip"
+$DriverZipPath = "C:\temp\hp_upd_pcl6.zip"
+$ExtractDir    = "C:\temp\hp_upd_pcl6"
 
 function Get-InfDriverCandidates {
     param([string]$InfPath)
@@ -63,8 +63,8 @@ try {
 
     Write-Host "Downloading driver package from $DriverUrl..."
     [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-    New-Item -Path (Split-Path $ZipPath) -ItemType Directory -Force | Out-Null
-    (New-Object Net.WebClient).DownloadFile($DriverUrl, $ZipPath)
+    New-Item -Path (Split-Path $DriverZipPath) -ItemType Directory -Force | Out-Null
+    (New-Object Net.WebClient).DownloadFile($DriverUrl, $DriverZipPath)
 
     Write-Host "Removing existing printer/port if present..."
     Get-Printer -Name $PrinterName -ErrorAction SilentlyContinue | Remove-Printer -ErrorAction SilentlyContinue
@@ -74,14 +74,31 @@ try {
         Remove-Item -Path $ExtractDir -Recurse -Force
     }
     Write-Host "Extracting driver package..."
-    Expand-Archive -Path $ZipPath -DestinationPath $ExtractDir -Force
+    Expand-Archive -Path $DriverZipPath -DestinationPath $ExtractDir -Force
 
     $infFiles = Get-ChildItem -Path $ExtractDir -Filter "*.inf" -Recurse
     if (-not $infFiles) {
-        throw "No .inf file found inside '$ZipPath'."
+        throw "No .inf file found inside '$DriverZipPath'."
     }
     Write-Host "Found $($infFiles.Count) .inf file(s):"
     $infFiles | ForEach-Object { Write-Host "  $($_.FullName)" }
+
+    # Trust the certificate the driver catalogs are signed with. Unattended
+    # pnputil rejects them otherwise ("the publisher of an Authenticode-signed
+    # catalog has not yet been established as trusted") - interactively, that
+    # trust is granted via the "trust software from HP Inc.?" click-through
+    # dialog, which can't appear when running as SYSTEM.
+    $catFiles = Get-ChildItem -Path $ExtractDir -Filter "*.cat" -Recurse
+    $trustedPublisherStore = New-Object Security.Cryptography.X509Certificates.X509Store("TrustedPublisher", "LocalMachine")
+    $trustedPublisherStore.Open("ReadWrite")
+    foreach ($cat in $catFiles) {
+        $signature = Get-AuthenticodeSignature -FilePath $cat.FullName
+        if ($signature.SignerCertificate -and ($trustedPublisherStore.Certificates.Find("FindByThumbprint", $signature.SignerCertificate.Thumbprint, $false).Count -eq 0)) {
+            Write-Host "Trusting driver signing certificate: $($signature.SignerCertificate.Subject)"
+            $trustedPublisherStore.Add($signature.SignerCertificate)
+        }
+    }
+    $trustedPublisherStore.Close()
 
     # Primary path: HP's Class=Printer .inf packages register themselves with the
     # print spooler as a side effect of "pnputil /add-driver /install" (the class
@@ -126,7 +143,7 @@ try {
     }
 
     if (-not $installedDriverName) {
-        throw "Could not install any printer driver found in '$ZipPath' - checked $($infFiles.Count) .inf file(s)."
+        throw "Could not install any printer driver found in '$DriverZipPath' - checked $($infFiles.Count) .inf file(s)."
     }
     Write-Host "Installed printer driver: $installedDriverName"
 
@@ -142,7 +159,7 @@ try {
 
     Write-Host "Cleaning up temp files..."
     Remove-Item -Path $ExtractDir -Recurse -Force -ErrorAction SilentlyContinue
-    Remove-Item -Path $ZipPath -Force -ErrorAction SilentlyContinue
+    Remove-Item -Path $DriverZipPath -Force -ErrorAction SilentlyContinue
 
     Write-Host "=== Done ==="
     exit 0
