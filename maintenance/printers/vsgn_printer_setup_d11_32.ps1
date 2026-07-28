@@ -44,9 +44,16 @@ function Get-InfDriverCandidates {
         }
     }
 
+    # The [Manufacturer] section maps a manufacturer display string to a model
+    # section name (also "name = target, arch1, arch2" shaped) - skip it, or
+    # its entries get misread as driver model names (e.g. "HP Inc.").
     $candidates = New-Object System.Collections.Generic.List[string]
+    $inManufacturer = $false
     foreach ($line in $lines) {
         $trimmed = ($line -replace ';.*$', '').Trim()
+        if ($trimmed -match '^\[Manufacturer\]$') { $inManufacturer = $true; continue }
+        if ($trimmed -match '^\[.+\]$') { $inManufacturer = $false; continue }
+        if ($inManufacturer) { continue }
         if ($trimmed -match '^(?:"(?<name>[^"]+)"|%(?<ph>[^%]+)%)\s*=\s*[\w\.\-]+\s*,\s*\S+') {
             if ($Matches['name']) {
                 $candidates.Add($Matches['name']) | Out-Null
@@ -56,6 +63,17 @@ function Get-InfDriverCandidates {
         }
     }
     return $candidates | Select-Object -Unique
+}
+
+function Get-PnpUtilPublishedInfPath {
+    param([string[]]$PnpUtilOutput)
+
+    foreach ($line in $PnpUtilOutput) {
+        if ($line -match '(?:Published Name|Ver.ffentlichter Name)\s*:\s*(oem\d+\.inf)') {
+            return Join-Path $env:WINDIR "INF\$($Matches[1])"
+        }
+    }
+    return $null
 }
 
 try {
@@ -100,46 +118,41 @@ try {
     }
     $trustedPublisherStore.Close()
 
-    # Primary path: HP's Class=Printer .inf packages register themselves with the
-    # print spooler as a side effect of "pnputil /add-driver /install" (the class
-    # installer calls the spooler API directly) - so diff Get-PrinterDriver before
-    # and after staging to find the name Windows actually registered it under,
-    # rather than guessing the name ourselves from the .inf's model section.
-    $driverNamesBefore = @(Get-PrinterDriver -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Name)
+    # Stage every .inf via pnputil first. Windows copies each into the driver
+    # store under C:\Windows\INF\oemXX.inf ("Published Name" in the output) -
+    # Add-PrinterDriver has to be pointed at that published copy, not at the
+    # original extracted file, or it fails with a generic
+    # "parameter is incorrect" (HRESULT 0x80070057) instead of a clear error.
+    $publishedInfPathByFile = @{}
     foreach ($inf in $infFiles) {
         Write-Host "Staging driver via pnputil: $($inf.FullName)"
         $pnputilOutput = & pnputil.exe /add-driver "$($inf.FullName)" /install 2>&1
         $pnputilOutput | ForEach-Object { Write-Host "  $_" }
-    }
-    $driverNamesAfter = @(Get-PrinterDriver -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Name)
-    $newDriverNames = @($driverNamesAfter | Where-Object { $_ -notin $driverNamesBefore })
-    Write-Host "New printer driver(s) registered by pnputil: $($newDriverNames -join ', ')"
-
-    $installedDriverName = $newDriverNames | Where-Object { $_ -match 'M430' } | Select-Object -First 1
-    if (-not $installedDriverName) {
-        $installedDriverName = $newDriverNames | Select-Object -First 1
-    }
-
-    # Fallback: package did not self-register (e.g. a driver-only .inf without the
-    # printer class installer) - parse candidate driver names out of the .inf's
-    # model section ourselves and register them explicitly.
-    if (-not $installedDriverName) {
-        Write-Host "pnputil staging alone did not register a printer driver, trying Add-PrinterDriver with names parsed from the .inf files..."
-        foreach ($inf in $infFiles) {
-            $candidates = Get-InfDriverCandidates -InfPath $inf.FullName
-            Write-Host "$($inf.Name): candidate driver name(s) found: $($candidates -join ' | ')"
-            foreach ($driverName in $candidates) {
-                try {
-                    Add-PrinterDriver -Name $driverName -InfPath $inf.FullName -ErrorAction Stop
-                    $installedDriverName = $driverName
-                    break
-                } catch {
-                    Write-Host "  Add-PrinterDriver failed for '$driverName': $($_.Exception.Message)"
-                    continue
-                }
-            }
-            if ($installedDriverName) { break }
+        $publishedInfPath = Get-PnpUtilPublishedInfPath -PnpUtilOutput $pnputilOutput
+        if ($publishedInfPath) {
+            $publishedInfPathByFile[$inf.FullName] = $publishedInfPath
+        } else {
+            Write-Host "  Could not determine the published INF path for $($inf.Name) - skipping it for Add-PrinterDriver."
         }
+    }
+
+    $installedDriverName = $null
+    foreach ($inf in $infFiles) {
+        if (-not $publishedInfPathByFile.ContainsKey($inf.FullName)) { continue }
+        $publishedInfPath = $publishedInfPathByFile[$inf.FullName]
+        $candidates = Get-InfDriverCandidates -InfPath $inf.FullName
+        Write-Host "$($inf.Name): candidate driver name(s) found: $($candidates -join ' | ')"
+        foreach ($driverName in $candidates) {
+            try {
+                Add-PrinterDriver -Name $driverName -InfPath $publishedInfPath -ErrorAction Stop
+                $installedDriverName = $driverName
+                break
+            } catch {
+                Write-Host "  Add-PrinterDriver failed for '$driverName' ($publishedInfPath): $($_.Exception.Message)"
+                continue
+            }
+        }
+        if ($installedDriverName) { break }
     }
 
     if (-not $installedDriverName) {
