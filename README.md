@@ -14,12 +14,14 @@ PowerShell scripts deployed as SyncroMSP RMM scripts. All scripts use `Import-Mo
 | `hardware/get_bios_info.ps1` | Diagnostic: prints detailed system, BIOS, Secure Boot, TPM, and event log info |
 | `drivers/HPIA_update.ps1` | Downloads and runs HP Image Assistant to install all updates |
 | `maintenance/schedule_reboot.ps1` | Notifies the logged-in user and schedules a forced reboot in 6 hours |
-| `maintenance/office_licence_cache_cleanup.ps1` | Clears all Office/M365 identity and license caches (run as logged-in user; reboot required after) |
+| `maintenance/Debug-OutlookAuth.ps1` | Read-only diagnostic for Outlook not fetching mail without prompting for a password: device join state, cached token ages, Credential Manager entries, profile accounts, endpoint reachability, recent related event log errors (run as logged-in user); `maintenance/syncro_wrapper_debug_outlook_auth.ps1` is the thin wrapper to paste into SyncroMSP |
+| `maintenance/office_licence_cache_cleanup.ps1` | Clears all Office/M365 identity and license caches (run as logged-in user; reboot required after); `maintenance/syncro_wrapper_office_licence_cache_cleanup.ps1` is the thin wrapper to paste into SyncroMSP |
 | `maintenance/teams_cache_cleanup.ps1` | Clears classic + new Teams local cache (run as logged-in user; re-login required after) |
 | `maintenance/vpn_first_logon_profile_fix.ps1` | Sets local policy to fix failed first domain login over VPN: always wait for network at logon + disable GPO slow-link detection, then gpupdate + reboots the device |
 | `maintenance/remove_apps/` | Removes unwanted Win32 and AppX apps based on a per-customer app list |
 | `maintenance/file-access-audit/Setup-FileAccessAudit.ps1` | One-time setup on a file server: sets SACL, grows the Security log, deploys a daily collector + weekly report script, registers scheduled tasks — file-level access statistics, no per-user monitoring |
 | `maintenance/printers/Setup-Printer.ps1` | Generic HP Universal Print Driver (PCL6) network printer setup, parameterized by printer name/IP; per-printer `syncro_wrapper_*.ps1` files call it (e.g. `syncro_wrapper_vsgn_d11_32.ps1` for VSGN's "D11-32 Container MFP M430f", IP 192.168.0.32) |
+| `maintenance/Backup-UserData.ps1` | Backs up Desktop/Documents/Downloads/Pictures/Music/Videos for every real local user profile to an external drive ahead of a PC replacement; takes `-TargetDrive` (e.g. `E:`) |
 
 ---
 
@@ -90,6 +92,14 @@ Stages every `.inf` in the package via `pnputil`, first trusting the HP signing 
 Removes any existing printer/port with the same name first (idempotent), then creates the port and printer via `Add-PrinterPort`/`Add-Printer`. Cleans up the extracted files and the zip afterward.
 
 **Per-printer wrappers** (e.g. `syncro_wrapper_vsgn_d11_32.ps1` — sets up the "D11-32 Container MFP M430f" at customer VSGN, IP `192.168.0.32`) are the files to copy into SyncroMSP. Each is a few lines: it downloads and runs the current `Setup-Printer.ps1` from this repo with that printer's fixed `-PrinterName`/`-PrinterIP`, so fixes to the shared driver logic take effect everywhere without editing wrappers again. No Required File attachment is needed. To add another printer, copy an existing wrapper and change the name/IP.
+
+---
+
+### `maintenance/Backup-UserData.ps1`
+
+Run directly against the old machine in SyncroMSP (not via the wrapper pattern - the drive letter is a runtime parameter, so there's nothing to hardcode). Plug in the external drive first, then run with `-TargetDrive` set to its drive letter, e.g. `E:`.
+
+Finds real local user profiles via `Get-CimInstance Win32_UserProfile -Filter "Special = False"` rather than listing `C:\Users`, so system/service profiles (Default, Public, systemprofile, LocalService, etc.) are excluded automatically without a maintained exclude list. For each profile, copies `Desktop`, `Documents`, `Downloads`, `Pictures`, `Music`, `Videos` (whichever exist, configurable via `$FoldersToBackup` at the top of the script) via `robocopy /E /XJ` to `<TargetDrive>\UserDataBackup\<mirrored source path>`, logging to `robocopy.log` in that backup folder. The destination mirrors each source path relative to its drive root (e.g. `C:\Users\jdoe\Desktop` -> `...\UserDataBackup\Users\jdoe\Desktop`), so extra absolute paths outside `C:\Users` can be added via `$AdditionalPaths` at the top without colliding with the per-user folders. This is a one-off data transfer, not a recurring backup - no timestamp subfolder, re-running against the same drive merges into the same `UserDataBackup` folder. Assumes standard, non-redirected folder locations (English folder names) - a folder moved elsewhere or OneDrive-redirected won't be picked up.
 
 ---
 
