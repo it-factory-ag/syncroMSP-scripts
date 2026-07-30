@@ -1,11 +1,13 @@
 <#
-Read-only diagnostic for "Outlook (Exchange/M365) doesn't fetch mail and
-doesn't prompt for a password" - a stale/broken auth token is the usual
-cause, but before running office_licence_cache_cleanup.ps1 (which force-closes
-Office/Teams/OneDrive and needs a reboot) this collects evidence of where
-the auth chain is actually stuck: device join state, cached token ages,
-Credential Manager entries, Outlook profile accounts, network reachability
-to the M365 auth/mail endpoints, and recent related event log errors.
+Read-only diagnostic for "Outlook (Exchange/M365 or hosted Exchange) doesn't
+fetch mail and doesn't prompt for a password" - a stale/broken auth token or a
+corrupted local data file are the usual causes, but before running
+office_licence_cache_cleanup.ps1 (which force-closes Office/Teams/OneDrive and
+needs a reboot) this collects evidence of where the chain is actually stuck:
+device join state, cached token ages, Credential Manager entries, Outlook
+profile accounts, OST/PST file health, network reachability to the M365
+auth/mail endpoints, the default account of the currently loaded profile, the
+AutoDiscover registry state, and recent related event log errors.
 
 Makes no changes. Prints everything to the script output for manual review.
 
@@ -18,9 +20,9 @@ Import-Module $env:SyncroModule
 Write-Host "=== Outlook Auth Debug ==="
 Write-Host "User: $env:USERNAME  |  Computer: $env:COMPUTERNAME  |  $(Get-Date)"
 
-# --- [1/8] Outlook process / version ---
+# --- [1/9] Outlook process / version ---
 Write-Host ""
-Write-Host "[1/8] Outlook process..."
+Write-Host "[1/9] Outlook process..."
 $outlookProc = Get-Process -Name OUTLOOK -ErrorAction SilentlyContinue
 if ($outlookProc) {
     Write-Host "  Running: PID $($outlookProc.Id), started $($outlookProc.StartTime)"
@@ -29,16 +31,16 @@ if ($outlookProc) {
     Write-Host "  Not running."
 }
 
-# --- [2/8] Azure AD device/user join state ---
+# --- [2/9] Azure AD device/user join state ---
 Write-Host ""
-Write-Host "[2/8] dsregcmd /status (device join + token state)..."
+Write-Host "[2/9] dsregcmd /status (device join + token state)..."
 $dsreg = dsregcmd /status 2>$null
 $relevantLines = $dsreg | Select-String -Pattern "AzureAdJoined|WorkplaceJoined|DomainJoined|AzureAdPrt|AzureAdPrtUpdateTime|AzureAdPrtExpiryTime|WamDefaultSet|WamDefaultAuthority"
 $relevantLines | ForEach-Object { Write-Host "  $($_.ToString().Trim())" }
 
-# --- [3/8] Broker/token cache freshness ---
+# --- [3/9] Broker/token cache freshness ---
 Write-Host ""
-Write-Host "[3/8] Broker/token cache folders (last write time = last refresh attempt)..."
+Write-Host "[3/9] Broker/token cache folders (last write time = last refresh attempt)..."
 $cachePaths = @(
     "$env:LOCALAPPDATA\Microsoft\IdentityCache",
     "$env:LOCALAPPDATA\Microsoft\OneAuth",
@@ -58,9 +60,9 @@ foreach ($p in $cachePaths) {
     }
 }
 
-# --- [4/8] Credential Manager entries ---
+# --- [4/9] Credential Manager entries ---
 Write-Host ""
-Write-Host "[4/8] Relevant Credential Manager entries..."
+Write-Host "[4/9] Relevant Credential Manager entries..."
 $credPatterns = @("TokenBroker", "AzureAD", "MicrosoftAccount", "MicrosoftOffice16", "WorkplaceJoin", "OUTLOOK")
 $credList = cmdkey /list
 $foundAny = $false
@@ -72,9 +74,9 @@ foreach ($pattern in $credPatterns) {
 }
 if (-not $foundAny) { Write-Host "  None found matching known patterns." }
 
-# --- [5/8] Outlook profile accounts (registry) ---
+# --- [5/9] Outlook profile accounts (registry) ---
 Write-Host ""
-Write-Host "[5/8] Outlook profile accounts..."
+Write-Host "[5/9] Outlook profile accounts..."
 $profileRoot = "HKCU:\Software\Microsoft\Office\16.0\Outlook\Profiles"
 if (Test-Path $profileRoot) {
     Get-ChildItem $profileRoot -ErrorAction SilentlyContinue | ForEach-Object {
@@ -91,21 +93,46 @@ if (Test-Path $profileRoot) {
     Write-Host "  No Outlook profile registry key found."
 }
 
-# --- [6/8] Network reachability to M365 auth/mail endpoints ---
+# --- [6/9] OST/PST data file inventory ---
+# Size 0 or a LastWriteTime far in the past while Outlook is running are the
+# classic signs of a stuck/corrupted local data file (see 0x8004010f-style errors
+# in the event log section below).
 Write-Host ""
-Write-Host "[6/8] Network reachability..."
+Write-Host "[6/9] OST/PST data file inventory..."
+$outlookDataPath = "$env:LOCALAPPDATA\Microsoft\Outlook"
+if (Test-Path $outlookDataPath) {
+    $dataFiles = Get-ChildItem -Path $outlookDataPath -Filter "*.ost" -File -ErrorAction SilentlyContinue
+    $dataFiles += Get-ChildItem -Path $outlookDataPath -Filter "*.pst" -File -ErrorAction SilentlyContinue
+    if ($dataFiles) {
+        $now = Get-Date
+        $dataFiles | Sort-Object LastWriteTime -Descending | ForEach-Object {
+            $ageMin = [Math]::Round((New-TimeSpan -Start $_.LastWriteTime -End $now).TotalMinutes)
+            $sizeMB = [Math]::Round($_.Length / 1MB, 1)
+            $flag = if ($_.Length -eq 0) { " [EMPTY - 0 bytes]" } elseif ($ageMin -gt 60 -and $outlookProc) { " [STALE - not written in $ageMin min while Outlook is running]" } else { "" }
+            Write-Host "  $($_.Name) - ${sizeMB} MB, last written $($_.LastWriteTime) ($ageMin min ago)$flag"
+        }
+    } else {
+        Write-Host "  No .ost/.pst files found in $outlookDataPath"
+    }
+} else {
+    Write-Host "  $outlookDataPath -> not present"
+}
+
+# --- [7/9] Network reachability to M365 auth/mail endpoints ---
+Write-Host ""
+Write-Host "[7/9] Network reachability..."
 $endpoints = @("login.microsoftonline.com", "outlook.office365.com", "outlook.office.com", "autodiscover-s.outlook.com")
 foreach ($ep in $endpoints) {
     $test = Test-NetConnection -ComputerName $ep -Port 443 -WarningAction SilentlyContinue
     Write-Host "  $ep`:443 -> $(if ($test.TcpTestSucceeded) { 'OK' } else { 'FAILED' })"
 }
 
-# --- [7/8] Default account/store of the currently loaded profile (via COM) ---
+# --- [8/9] Default account/store of the currently loaded profile (via COM) ---
 # Only attaches to an Outlook instance that is already running (GetActiveObject does
 # not launch a new one), so this stays read-only and only covers the profile that is
-# actually loaded right now - not every profile listed in [5/8].
+# actually loaded right now - not every profile listed in [5/9].
 Write-Host ""
-Write-Host "[7/8] Default account/store (currently loaded profile only, via COM)..."
+Write-Host "[8/9] Default account/store (currently loaded profile only, via COM)..."
 if ($outlookProc) {
     try {
         $ol = [Runtime.InteropServices.Marshal]::GetActiveObject("Outlook.Application")
@@ -125,9 +152,9 @@ if ($outlookProc) {
     Write-Host "  Outlook not running - skipped (would require launching Outlook, this script is read-only)."
 }
 
-# --- [8/8] AutoDiscover registry settings and cache ---
+# --- [9/9] AutoDiscover registry settings and cache ---
 Write-Host ""
-Write-Host "[8/8] AutoDiscover registry settings..."
+Write-Host "[9/9] AutoDiscover registry settings..."
 $autoDiscoverKey = "HKCU:\Software\Microsoft\Office\16.0\Outlook\AutoDiscover"
 if (Test-Path $autoDiscoverKey) {
     Write-Host "  ${autoDiscoverKey}:"
@@ -144,7 +171,7 @@ if (Test-Path $autoDiscoverKey) {
     if ($cacheEntries) {
         Write-Host "  Cached AutoDiscover subkeys (per-account redirect/response cache):"
         $cacheEntries | ForEach-Object {
-            Write-Host "    $($_.PSChildName) - last written $($_.LastWriteTime)"
+            Write-Host "    $($_.PSChildName)"
         }
     }
 } else {
