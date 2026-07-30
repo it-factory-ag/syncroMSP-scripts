@@ -18,9 +18,9 @@ Import-Module $env:SyncroModule
 Write-Host "=== Outlook Auth Debug ==="
 Write-Host "User: $env:USERNAME  |  Computer: $env:COMPUTERNAME  |  $(Get-Date)"
 
-# --- [1/6] Outlook process / version ---
+# --- [1/8] Outlook process / version ---
 Write-Host ""
-Write-Host "[1/6] Outlook process..."
+Write-Host "[1/8] Outlook process..."
 $outlookProc = Get-Process -Name OUTLOOK -ErrorAction SilentlyContinue
 if ($outlookProc) {
     Write-Host "  Running: PID $($outlookProc.Id), started $($outlookProc.StartTime)"
@@ -29,16 +29,16 @@ if ($outlookProc) {
     Write-Host "  Not running."
 }
 
-# --- [2/6] Azure AD device/user join state ---
+# --- [2/8] Azure AD device/user join state ---
 Write-Host ""
-Write-Host "[2/6] dsregcmd /status (device join + token state)..."
+Write-Host "[2/8] dsregcmd /status (device join + token state)..."
 $dsreg = dsregcmd /status 2>$null
 $relevantLines = $dsreg | Select-String -Pattern "AzureAdJoined|WorkplaceJoined|DomainJoined|AzureAdPrt|AzureAdPrtUpdateTime|AzureAdPrtExpiryTime|WamDefaultSet|WamDefaultAuthority"
 $relevantLines | ForEach-Object { Write-Host "  $($_.ToString().Trim())" }
 
-# --- [3/6] Broker/token cache freshness ---
+# --- [3/8] Broker/token cache freshness ---
 Write-Host ""
-Write-Host "[3/6] Broker/token cache folders (last write time = last refresh attempt)..."
+Write-Host "[3/8] Broker/token cache folders (last write time = last refresh attempt)..."
 $cachePaths = @(
     "$env:LOCALAPPDATA\Microsoft\IdentityCache",
     "$env:LOCALAPPDATA\Microsoft\OneAuth",
@@ -58,9 +58,9 @@ foreach ($p in $cachePaths) {
     }
 }
 
-# --- [4/6] Credential Manager entries ---
+# --- [4/8] Credential Manager entries ---
 Write-Host ""
-Write-Host "[4/6] Relevant Credential Manager entries..."
+Write-Host "[4/8] Relevant Credential Manager entries..."
 $credPatterns = @("TokenBroker", "AzureAD", "MicrosoftAccount", "MicrosoftOffice16", "WorkplaceJoin", "OUTLOOK")
 $credList = cmdkey /list
 $foundAny = $false
@@ -72,9 +72,9 @@ foreach ($pattern in $credPatterns) {
 }
 if (-not $foundAny) { Write-Host "  None found matching known patterns." }
 
-# --- [5/6] Outlook profile accounts (registry) ---
+# --- [5/8] Outlook profile accounts (registry) ---
 Write-Host ""
-Write-Host "[5/6] Outlook profile accounts..."
+Write-Host "[5/8] Outlook profile accounts..."
 $profileRoot = "HKCU:\Software\Microsoft\Office\16.0\Outlook\Profiles"
 if (Test-Path $profileRoot) {
     Get-ChildItem $profileRoot -ErrorAction SilentlyContinue | ForEach-Object {
@@ -91,25 +91,94 @@ if (Test-Path $profileRoot) {
     Write-Host "  No Outlook profile registry key found."
 }
 
-# --- [6/6] Network reachability to M365 auth/mail endpoints ---
+# --- [6/8] Network reachability to M365 auth/mail endpoints ---
 Write-Host ""
-Write-Host "[6/6] Network reachability..."
+Write-Host "[6/8] Network reachability..."
 $endpoints = @("login.microsoftonline.com", "outlook.office365.com", "outlook.office.com", "autodiscover-s.outlook.com")
 foreach ($ep in $endpoints) {
     $test = Test-NetConnection -ComputerName $ep -Port 443 -WarningAction SilentlyContinue
     Write-Host "  $ep`:443 -> $(if ($test.TcpTestSucceeded) { 'OK' } else { 'FAILED' })"
 }
 
+# --- [7/8] Default account/store of the currently loaded profile (via COM) ---
+# Only attaches to an Outlook instance that is already running (GetActiveObject does
+# not launch a new one), so this stays read-only and only covers the profile that is
+# actually loaded right now - not every profile listed in [5/8].
+Write-Host ""
+Write-Host "[7/8] Default account/store (currently loaded profile only, via COM)..."
+if ($outlookProc) {
+    try {
+        $ol = [Runtime.InteropServices.Marshal]::GetActiveObject("Outlook.Application")
+        $ns = $ol.GetNamespace("MAPI")
+        $defaultStore = $ns.DefaultStore
+        Write-Host "  Default store: $($defaultStore.DisplayName)"
+        foreach ($acct in $ns.Accounts) {
+            $isDefault = $false
+            try { $isDefault = $acct.DeliveryStore.StoreID -eq $defaultStore.StoreID } catch {}
+            $marker = if ($isDefault) { " [DEFAULT]" } else { "" }
+            Write-Host "  Account: $($acct.DisplayName) <$($acct.SmtpAddress)> - DeliveryStore: $($acct.DeliveryStore.DisplayName)$marker"
+        }
+    } catch {
+        Write-Host "  Could not attach to running Outlook via COM: $($_.Exception.Message)"
+    }
+} else {
+    Write-Host "  Outlook not running - skipped (would require launching Outlook, this script is read-only)."
+}
+
+# --- [8/8] AutoDiscover registry settings and cache ---
+Write-Host ""
+Write-Host "[8/8] AutoDiscover registry settings..."
+$autoDiscoverKey = "HKCU:\Software\Microsoft\Office\16.0\Outlook\AutoDiscover"
+if (Test-Path $autoDiscoverKey) {
+    Write-Host "  ${autoDiscoverKey}:"
+    $props = Get-ItemProperty -Path $autoDiscoverKey -ErrorAction SilentlyContinue
+    $values = @()
+    if ($props) { $values = @($props.PSObject.Properties | Where-Object { $_.Name -notmatch '^PS' }) }
+    if ($values.Count -gt 0) {
+        $values | ForEach-Object { Write-Host "    $($_.Name) = $($_.Value)" }
+    } else {
+        Write-Host "    (no explicit values - Outlook uses defaults)"
+    }
+
+    $cacheEntries = Get-ChildItem -Path $autoDiscoverKey -ErrorAction SilentlyContinue
+    if ($cacheEntries) {
+        Write-Host "  Cached AutoDiscover subkeys (per-account redirect/response cache):"
+        $cacheEntries | ForEach-Object {
+            Write-Host "    $($_.PSChildName) - last written $($_.LastWriteTime)"
+        }
+    }
+} else {
+    Write-Host "  $autoDiscoverKey -> not present (no AutoDiscover overrides, no cache yet)"
+}
+
+$autoDiscoverPolicyKeys = @(
+    "HKLM:\SOFTWARE\Policies\Microsoft\office\16.0\outlook\autodiscover",
+    "HKCU:\Software\Policies\Microsoft\office\16.0\outlook\autodiscover"
+)
+foreach ($polKey in $autoDiscoverPolicyKeys) {
+    if (Test-Path $polKey) {
+        Write-Host "  GPO override at ${polKey}:"
+        Get-ItemProperty -Path $polKey -ErrorAction SilentlyContinue |
+            ForEach-Object { $_.PSObject.Properties | Where-Object { $_.Name -notmatch '^PS' } } |
+            ForEach-Object { Write-Host "    $($_.Name) = $($_.Value)" }
+    }
+}
+
 # --- Recent related event log errors (last 24h) ---
 Write-Host ""
 Write-Host "Recent related event log errors (last 24h)..."
+Write-Host "  Note: these are NOT filtered per account/profile - Outlook's own event log messages"
+Write-Host "  don't reliably expose which mailbox/account triggered them. Full message is printed"
+Write-Host "  below so you can check it yourself; do not assume it belongs to a specific account."
 $since = (Get-Date).AddHours(-24)
 try {
     $events = Get-WinEvent -FilterHashtable @{ LogName = "Application"; Level = 2, 3; StartTime = $since } -ErrorAction Stop |
         Where-Object { $_.ProviderName -match "Outlook|AAD|WAM|Identity|Broker" }
     if ($events) {
         $events | Select-Object -First 10 | ForEach-Object {
-            Write-Host "  [$($_.TimeCreated)] $($_.ProviderName): $($_.Message -split "`n" | Select-Object -First 1)"
+            $fullMessage = ($_.Message -replace "`r`n", " " -replace "`n", " ").Trim()
+            if ($fullMessage.Length -gt 300) { $fullMessage = $fullMessage.Substring(0, 300) + "..." }
+            Write-Host "  [$($_.TimeCreated)] $($_.ProviderName): $fullMessage"
         }
     } else {
         Write-Host "  None found."
