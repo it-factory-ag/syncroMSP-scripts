@@ -21,6 +21,7 @@ PowerShell scripts deployed as SyncroMSP RMM scripts. All scripts use `Import-Mo
 | `maintenance/remove_apps/` | Removes unwanted Win32 and AppX apps based on a per-customer app list |
 | `maintenance/file-access-audit/Setup-FileAccessAudit.ps1` | One-time setup on a file server: sets SACL, grows the Security log, deploys a daily collector + weekly report script, registers scheduled tasks — file-level access statistics, no per-user monitoring |
 | `maintenance/printers/Setup-Printer.ps1` | Generic HP Universal Print Driver (PCL6) network printer setup, parameterized by printer name/IP; per-printer `syncro_wrapper_*.ps1` files call it (e.g. `syncro_wrapper_vsgn_d11_32.ps1` for VSGN's "D11-32 Container MFP M430f", IP 192.168.0.32) |
+| `maintenance/printers/Set-DefaultPrinter.ps1` | Generic engine, sets a printer as default for the logged-in user (`-PrinterName`); per-printer `syncro_wrapper_set_default_*.ps1` kept in Syncro only (not in this repo); must run as the logged-in user, not SYSTEM |
 | `maintenance/Backup-UserData.ps1` | Backs up Desktop/Documents/Downloads/Pictures/Music/Videos for every real local user profile to an external drive ahead of a PC replacement; takes `-TargetDrive` (e.g. `E:`) |
 
 ---
@@ -92,6 +93,14 @@ Stages every `.inf` in the package via `pnputil`, first trusting the HP signing 
 Removes any existing printer/port with the same name first (idempotent), then creates the port and printer via `Add-PrinterPort`/`Add-Printer`. Cleans up the extracted files and the zip afterward.
 
 **Per-printer wrappers** (e.g. `syncro_wrapper_vsgn_d11_32.ps1` — sets up the "D11-32 Container MFP M430f" at customer VSGN, IP `192.168.0.32`) are the files to copy into SyncroMSP. Each is a few lines: it downloads and runs the current `Setup-Printer.ps1` from this repo with that printer's fixed `-PrinterName`/`-PrinterIP`, so fixes to the shared driver logic take effect everywhere without editing wrappers again. No Required File attachment is needed. To add another printer, copy an existing wrapper and change the name/IP.
+
+---
+
+### `maintenance/printers/Set-DefaultPrinter.ps1`
+
+Generic engine that sets the given printer (`-PrinterName`) as the default for the logged-in user. Not a direct SyncroMSP endpoint script — run indirectly via a thin `syncro_wrapper_set_default_*.ps1` pasted directly into Syncro (not checked into this repo; kept in Syncro only, per printer/customer).
+
+Sets the printer as default via `Win32_Printer`'s `SetDefaultPrinter()` CIM method rather than the `WScript.Network` COM object, which silently no-ops outside an interactive desktop session context. **Must run as the logged-in user** (Syncro: run as "Logged in user"), since the default printer is a per-user setting — running as SYSTEM sets it for the SYSTEM account's session, not the interactive user's.
 
 ---
 
