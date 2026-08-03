@@ -23,8 +23,8 @@ PowerShell scripts deployed as SyncroMSP RMM scripts. All scripts use `Import-Mo
 | `maintenance/printers/Setup-Printer.ps1` | Generic HP Universal Print Driver (PCL6) network printer setup, parameterized by printer name/IP; per-printer `syncro_wrapper_*.ps1` files call it (e.g. `syncro_wrapper_vsgn_d11_32.ps1` for VSGN's "D11-32 Container MFP M430f", IP 192.168.0.32) |
 | `maintenance/printers/Set-DefaultPrinter.ps1` | Generic engine, sets a printer as default for the logged-in user (`-PrinterName`); per-printer `syncro_wrapper_set_default_*.ps1` kept in Syncro only (not in this repo); must run as the logged-in user, not SYSTEM |
 | `maintenance/Backup-UserData.ps1` | Backs up Desktop/Documents/Downloads/Pictures/Music/Videos for every real local user profile to an external drive ahead of a PC replacement; takes `-TargetDrive` (e.g. `E:`) |
-| `maintenance/ssh-debug/Enable-SSHDebug.ps1` | Temporarily enables OpenSSH Server for a remote debug session (installs the capability if missing, starts `sshd`, opens the firewall rule); auto-disables itself again after `-DurationMinutes` (default 60) via a one-time Scheduled Task; `maintenance/ssh-debug/Disable-SSHDebug.ps1` disables it immediately instead of waiting |
-| `maintenance/ssh-debug/Disable-SSHDebug.ps1` | Immediately reverts `Enable-SSHDebug.ps1` (stops `sshd`, restores its original startup type, closes the firewall rule, removes the auto-disable task); safe to run even if no session is active |
+| `maintenance/temp-ssh-access/Enable-TempSSHAccess.ps1` | Temporarily enables OpenSSH Server for a remote support session (installs the capability if missing, starts `sshd`, opens the firewall rule); auto-disables itself again after `-DurationMinutes` (default 60) via a one-time Scheduled Task; `maintenance/temp-ssh-access/Disable-TempSSHAccess.ps1` disables it immediately instead of waiting |
+| `maintenance/temp-ssh-access/Disable-TempSSHAccess.ps1` | Immediately reverts `Enable-TempSSHAccess.ps1` (stops `sshd`, restores its original startup type, closes the firewall rule, removes the auto-disable task); safe to run even if no session is active |
 
 ---
 
@@ -114,22 +114,33 @@ Finds real local user profiles via `Get-CimInstance Win32_UserProfile -Filter "S
 
 ---
 
-### `maintenance/ssh-debug/Enable-SSHDebug.ps1` / `maintenance/ssh-debug/Disable-SSHDebug.ps1`
+### `maintenance/temp-ssh-access/Enable-TempSSHAccess.ps1` / `maintenance/temp-ssh-access/Disable-TempSSHAccess.ps1`
 
-Opens a temporary OpenSSH remote-debug window on a Windows endpoint (native `ssh`, no extra tooling), then closes it again on its own so access doesn't linger.
+Opens a temporary OpenSSH remote-access window on a Windows endpoint (native `ssh`, no extra tooling), then closes it again on its own so access doesn't linger.
 
-`Enable-SSHDebug.ps1` (run directly against the target asset, optionally with `-DurationMinutes 90` etc., default 60):
+`Enable-TempSSHAccess.ps1` (run directly against the target asset, optionally with `-DurationMinutes 90` etc., default 60):
 1. Installs the `OpenSSH.Server` Windows capability if missing (left installed afterwards — harmless, avoids re-downloading it every session).
-2. Captures `sshd`'s current startup type into `C:\ProgramData\ITFactory\SSHDebug\state.json` **only on first enable of a session**, so `Disable-SSHDebug.ps1` can restore the exact original value instead of assuming a default. Re-running `Enable-SSHDebug.ps1` while a session is already active just extends the timer without touching that saved state.
+2. Captures `sshd`'s current startup type into `C:\ProgramData\ITFactory\TempSSHAccess\state.json` **only on first enable of a session**, so `Disable-TempSSHAccess.ps1` can restore the exact original value instead of assuming a default. Re-running `Enable-TempSSHAccess.ps1` while a session is already active just extends the timer without touching that saved state.
 3. Sets `sshd` to `Manual` startup and starts it, and makes sure the `OpenSSH-Server-In-TCP` firewall rule is enabled.
-4. Deploys a local copy of the disable logic to `C:\ProgramData\ITFactory\SSHDebug\Disable-SSHDebug.ps1` and registers a one-time Scheduled Task (`ITFactory-SSHDebug-AutoDisable`, runs as SYSTEM) that calls it after `-DurationMinutes` — this runs entirely locally, so the auto-revert still fires even if the Syncro connection drops or the machine briefly sleeps (`-StartWhenAvailable`).
-5. Optionally writes the expiry timestamp to the `SSH Debug Expires` custom asset field (create it first under **Admin → Custom Asset Fields**, type Text) and raises an `Rmm-Alert` (category `SSH Debug Access`) so the temporary access is visible/audited in Syncro.
+4. Deploys a local copy of the disable logic to `C:\ProgramData\ITFactory\TempSSHAccess\Disable-TempSSHAccess.ps1` and registers a one-time Scheduled Task (`ITFactory-TempSSHAccess-AutoDisable`, runs as SYSTEM) that calls it after `-DurationMinutes` — this runs entirely locally, so the auto-revert still fires even if the Syncro connection drops or the machine briefly sleeps (`-StartWhenAvailable`).
+5. Optionally writes the expiry timestamp to the `Temp SSH Access Expires` custom asset field (create it first under **Admin → Custom Asset Fields**, type Text) so the current session's expiry is visible directly on the asset in Syncro.
+6. Optional `-SshPublicKey "ssh-ed25519 AAAA... comment"` deploys that key for password-less login, in addition to the existing password login (untouched). Written to `C:\ProgramData\ssh\administrators_authorized_keys` — the special path Windows OpenSSH requires for logins by members of the local Administrators group (a regular user's `~\.ssh\authorized_keys` is ignored for admin accounts) — with its ACL locked down to SYSTEM + Administrators only (`icacls /inheritance:r`), since sshd otherwise refuses the file with "bad ownership or modes". Only the key(s) this script itself added are tracked in `state.json` and removed again on disable; any keys already present in that file beforehand are left alone.
 
-Runs entirely invisible to the logged-in user: like all SyncroMSP scripts this executes as SYSTEM in session 0 (no window, no toast), and the scheduled auto-disable task runs `-WindowStyle Hidden` and is registered as a hidden task. `Rmm-Alert` is admin-facing only (SyncroMSP dashboard), never shown on the endpoint.
+Runs entirely invisible to the logged-in user: like all SyncroMSP scripts this executes as SYSTEM in session 0 (no window, no toast), and the scheduled auto-disable task runs `-WindowStyle Hidden` and is registered as a hidden task. `Rmm-Alert` (category `Temp SSH Access`) only fires on failure to enable/disable — routine success is intentionally silent, since a failed *disable* (access left open past its expiry) is the case worth being paged for, not a routine enable/disable.
 
 The Windows-created `OpenSSH-Server-In-TCP` firewall rule is not scoped to a network profile (it applies on Domain/Private/Public alike) — switching the connection profile to "Private" is **not** required for SSH itself to work, so this script doesn't touch it. Power/sleep settings are likewise left untouched; disable sleep manually during a session if the device might go idle.
 
-**`maintenance/ssh-debug/Disable-SSHDebug.ps1`** reverts everything immediately (stops `sshd`, restores its original startup type, disables the firewall rule again, removes the scheduled task) — run it from Syncro to end a session early instead of waiting for the timer. Safe to run even with no session active. Its logic is duplicated as an embedded here-string inside `Enable-SSHDebug.ps1` (needed so the scheduled task can revert locally without depending on Syncro/network reachability at fire time) — keep both in sync if you change the revert logic.
+**`maintenance/temp-ssh-access/Disable-TempSSHAccess.ps1`** reverts everything immediately (stops `sshd`, restores its original startup type, disables the firewall rule again, removes any SSH key(s) it added, removes the scheduled task) — run it from Syncro to end a session early instead of waiting for the timer. Safe to run even with no session active. Its logic is duplicated as an embedded here-string inside `Enable-TempSSHAccess.ps1` (needed so the scheduled task can revert locally without depending on Syncro/network reachability at fire time) — keep both in sync if you change the revert logic.
+
+**Local testing without Syncro** — `Enable-TempSSHAccess.ps1`/`Disable-TempSSHAccess.ps1` call `Import-Module $env:SyncroModule` and then `Rmm-Alert`/`Set-Asset-Field`, both of which only exist once that module (injected by the Syncro agent at runtime) is loaded; running the scripts directly on a machine without Syncro fails on those calls. Two dev-only helper files, not deployed to Syncro, work around that:
+- **`maintenance/temp-ssh-access/Mock-SyncroModule.psm1`** — a stand-in module providing no-op `Rmm-Alert`/`Set-Asset-Field` implementations that just print to the console instead of talking to Syncro.
+- **`maintenance/temp-ssh-access/Test-Local.ps1`** — sets `$env:SyncroModule` to that mock and runs `Enable-TempSSHAccess.ps1` or `Disable-TempSSHAccess.ps1`:
+  ```powershell
+  powershell.exe -ExecutionPolicy Bypass -File .\Test-Local.ps1 -Action Enable
+  powershell.exe -ExecutionPolicy Bypass -File .\Test-Local.ps1 -Action Enable -DurationMinutes 15 -SshPublicKey "ssh-ed25519 AAAA... me@mac"
+  powershell.exe -ExecutionPolicy Bypass -File .\Test-Local.ps1 -Action Disable
+  ```
+  Run elevated (as Administrator) since the underlying scripts manage services, firewall rules, and scheduled tasks.
 
 ---
 
