@@ -23,8 +23,8 @@ PowerShell scripts deployed as SyncroMSP RMM scripts. All scripts use `Import-Mo
 | `maintenance/printers/Setup-Printer.ps1` | Generic HP Universal Print Driver (PCL6) network printer setup, parameterized by printer name/IP; per-printer `syncro_wrapper_*.ps1` files call it (e.g. `syncro_wrapper_vsgn_d11_32.ps1` for VSGN's "D11-32 Container MFP M430f", IP 192.168.0.32) |
 | `maintenance/printers/Set-DefaultPrinter.ps1` | Generic engine, sets a printer as default for the logged-in user (`-PrinterName`); per-printer `syncro_wrapper_set_default_*.ps1` kept in Syncro only (not in this repo); must run as the logged-in user, not SYSTEM |
 | `maintenance/Backup-UserData.ps1` | Backs up Desktop/Documents/Downloads/Pictures/Music/Videos for every real local user profile to an external drive ahead of a PC replacement; takes `-TargetDrive` (e.g. `E:`) |
-| `maintenance/temp-ssh-access/Enable-TempSSHAccess.ps1` | Temporarily enables OpenSSH Server for a remote support session (installs the capability if missing, starts `sshd`, opens the firewall rule); auto-disables itself again after `-DurationMinutes` (default 60) via a one-time Scheduled Task; `maintenance/temp-ssh-access/Disable-TempSSHAccess.ps1` disables it immediately instead of waiting |
-| `maintenance/temp-ssh-access/Disable-TempSSHAccess.ps1` | Immediately reverts `Enable-TempSSHAccess.ps1` (stops `sshd`, restores its original startup type, closes the firewall rule, removes the auto-disable task); safe to run even if no session is active |
+| `maintenance/temp-ssh-access/Enable-TempSSHAccess.ps1` | Temporarily enables OpenSSH Server for a remote support session (installs the capability if missing, starts `sshd`, opens the firewall rule, optionally deploys an `-SshPublicKey`); auto-disables itself again after `-DurationMinutes` (default 60) via a one-time Scheduled Task; `maintenance/temp-ssh-access/syncro_wrapper_enable_temp_ssh_access.ps1` is the thin wrapper to paste into SyncroMSP |
+| `maintenance/temp-ssh-access/Disable-TempSSHAccess.ps1` | Immediately reverts `Enable-TempSSHAccess.ps1` (stops `sshd`, restores its original startup type, closes the firewall rule, removes any deployed SSH key, removes the auto-disable task); safe to run even if no session is active; `maintenance/temp-ssh-access/syncro_wrapper_disable_temp_ssh_access.ps1` is the thin wrapper to paste into SyncroMSP |
 
 ---
 
@@ -118,7 +118,9 @@ Finds real local user profiles via `Get-CimInstance Win32_UserProfile -Filter "S
 
 Opens a temporary OpenSSH remote-access window on a Windows endpoint (native `ssh`, no extra tooling), then closes it again on its own so access doesn't linger.
 
-`Enable-TempSSHAccess.ps1` (run directly against the target asset, optionally with `-DurationMinutes 90` etc., default 60):
+Not run directly in Syncro — `syncro_wrapper_enable_temp_ssh_access.ps1` / `syncro_wrapper_disable_temp_ssh_access.ps1` are the thin wrappers to paste into **Scripting → Scripts** (same download-from-GitHub-at-runtime pattern as `syncro_wrapper_debug_outlook_auth.ps1` etc.); they download the current `Enable-TempSSHAccess.ps1` / `Disable-TempSSHAccess.ps1` from this repo and run it, passing through `-DurationMinutes`/`-SshPublicKey` as Syncro script parameters. Fixes to the real logic then take effect immediately without re-pasting anything into Syncro.
+
+`Enable-TempSSHAccess.ps1` (optionally with `-DurationMinutes 90` etc., default 60):
 1. Installs the `OpenSSH.Server` Windows capability if missing (left installed afterwards — harmless, avoids re-downloading it every session).
 2. Captures `sshd`'s current startup type into `C:\ProgramData\ITFactory\TempSSHAccess\state.json` **only on first enable of a session**, so `Disable-TempSSHAccess.ps1` can restore the exact original value instead of assuming a default. Re-running `Enable-TempSSHAccess.ps1` while a session is already active just extends the timer without touching that saved state.
 3. Sets `sshd` to `Manual` startup and starts it, and makes sure the `OpenSSH-Server-In-TCP` firewall rule is enabled.
