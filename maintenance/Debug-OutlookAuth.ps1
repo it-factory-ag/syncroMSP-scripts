@@ -74,12 +74,12 @@ Write-Host ""
 Write-Host "[4/9] Relevant Credential Manager entries..."
 $credPatterns = @("TokenBroker", "AzureAD", "MicrosoftAccount", "MicrosoftOffice16", "WorkplaceJoin", "OUTLOOK")
 $credList = cmdkey /list
-$matches = @()
+$credMatches = @()
 foreach ($pattern in $credPatterns) {
-    $matches += @($credList | Select-String -Pattern "Target: .*$pattern.*")
+    $credMatches += @($credList | Select-String -Pattern "Target: .*$pattern.*")
 }
-if ($matches.Count -gt 0) {
-    $matches | ForEach-Object { Write-Host "  $($_.ToString().Trim())" }
+if ($credMatches.Count -gt 0) {
+    $credMatches | ForEach-Object { Write-Host "  $($_.ToString().Trim())" }
 } else {
     Write-Host "  None found matching known patterns."
 }
