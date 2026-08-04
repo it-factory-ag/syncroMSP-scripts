@@ -23,13 +23,20 @@ Write-Host "User: $env:USERNAME  |  Computer: $env:COMPUTERNAME  |  $(Get-Date)"
 # --- [1/9] Outlook process / version ---
 Write-Host ""
 Write-Host "[1/9] Outlook process..."
-$outlookProc = Get-Process -Name OUTLOOK -ErrorAction SilentlyContinue | Select-Object -First 1
-if ($outlookProc) {
-    $respondingText = if ($outlookProc.Responding) { "YES" } else { "NO - hung/not responding to its message loop" }
-    Write-Host "  Running: PID $($outlookProc.Id), started $($outlookProc.StartTime)"
-    Write-Host "  Responding: $respondingText"
-    Write-Host "  Version: $($outlookProc.Path | Get-Item | ForEach-Object { $_.VersionInfo.ProductVersion })"
-} else {
+$outlookProcs = @(Get-Process -Name OUTLOOK -ErrorAction SilentlyContinue)
+if ($outlookProcs.Count -gt 1) {
+    Write-Host "  WARNING: $($outlookProcs.Count) OUTLOOK.EXE processes running at once - likely multiple profiles open simultaneously."
+}
+if ($outlookProcs.Count -gt 0) {
+    foreach ($p in $outlookProcs) {
+        $respondingText = if ($p.Responding) { "YES" } else { "NO - hung/not responding to its message loop" }
+        Write-Host "  Running: PID $($p.Id), started $($p.StartTime)"
+        Write-Host "    Responding: $respondingText"
+        Write-Host "    Version: $($p.Path | Get-Item | ForEach-Object { $_.VersionInfo.ProductVersion })"
+    }
+}
+$outlookProc = $outlookProcs | Select-Object -First 1
+if (-not $outlookProc) {
     Write-Host "  Not running."
 }
 
