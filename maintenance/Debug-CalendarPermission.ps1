@@ -133,13 +133,32 @@ $folderIdentity = "${MailboxIdentity}:\$FolderName"
 # a plain "-like *$DelegateIdentity*" match against that field silently
 # misses every real match unless the two happen to be spelled the same.
 # Resolve the delegate up front and match against every known identity form.
-$delegateMatchTerms = @($DelegateIdentity)
+# Dots/underscores -> spaces first, since that alone turns a "firstname.lastname"
+# style identity into something that already matches a "Firstname Lastname"
+# DisplayName - this works even when Get-Recipient can't resolve the identity
+# at all (e.g. it doesn't match Alias/UPN/SamAccountName exactly).
+$normalizedIdentity = ($DelegateIdentity -replace '[._]', ' ').Trim()
+$delegateMatchTerms = @($DelegateIdentity, $normalizedIdentity) | Select-Object -Unique
 try {
     $delegateRecipient = Get-Recipient -Identity $DelegateIdentity -ErrorAction Stop
     $delegateMatchTerms += @($delegateRecipient.DisplayName, $delegateRecipient.Alias, $delegateRecipient.Name, $delegateRecipient.PrimarySmtpAddress.ToString()) | Where-Object { $_ }
     Write-Host "Resolved delegate '$DelegateIdentity' to: $($delegateRecipient.DisplayName) <$($delegateRecipient.PrimarySmtpAddress)>"
 } catch {
-    Write-Host "WARNING: Could not resolve '$DelegateIdentity' via Get-Recipient ($($_.Exception.Message)) - matching against the raw identity string only, which may miss entries listed under a display name."
+    Write-Host "WARNING: Could not resolve '$DelegateIdentity' via Get-Recipient ($($_.Exception.Message)) - trying a DisplayName search instead."
+    $tokens = @($normalizedIdentity -split '\s+' | Where-Object { $_ })
+    if ($tokens.Count -gt 0) {
+        $filter = ($tokens | ForEach-Object { "DisplayName -like '*$_*'" }) -join ' -and '
+        $candidates = @(Get-Recipient -Filter $filter -ErrorAction SilentlyContinue)
+        if ($candidates.Count -eq 1) {
+            $delegateRecipient = $candidates[0]
+            $delegateMatchTerms += @($delegateRecipient.DisplayName, $delegateRecipient.Alias, $delegateRecipient.Name, $delegateRecipient.PrimarySmtpAddress.ToString()) | Where-Object { $_ }
+            Write-Host "Resolved delegate '$DelegateIdentity' via DisplayName search to: $($delegateRecipient.DisplayName) <$($delegateRecipient.PrimarySmtpAddress)>"
+        } elseif ($candidates.Count -gt 1) {
+            Write-Host "WARNING: Multiple recipients matched a DisplayName search for '$DelegateIdentity': $(($candidates | ForEach-Object { $_.DisplayName }) -join ', ') - not auto-resolving further; matching against '$DelegateIdentity' / '$normalizedIdentity' only."
+        } else {
+            Write-Host "WARNING: DisplayName search for '$DelegateIdentity' found no recipient either - matching against '$DelegateIdentity' / '$normalizedIdentity' only, which may still miss entries listed under an unrelated identity form."
+        }
+    }
 }
 function Test-IsDelegateEntry {
     param($UserField)
