@@ -32,7 +32,7 @@ $MailboxIdentity  = "siziklein"
 $DelegateIdentity = "christa.stocker"
 $FolderName       = "Calendar"
 $AuditLogDays     = 90
-$Remediate        = $false
+$Remediate        = $true
 
 Import-Module $env:SyncroModule
 
