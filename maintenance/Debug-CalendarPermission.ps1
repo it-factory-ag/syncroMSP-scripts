@@ -6,19 +6,34 @@ same user".
 
 Background (Zohodesk ticket 56952000034481001, "SiZi Klein" calendar):
 Server-side ACL already shows Owner, so the block is not a missing
-permission - it's either (a) a client-side Outlook permission cache that
-hasn't picked up a permission change yet, or (b) the "Owner" entry was
-actually created by an Outlook delegate assignment (Account Settings ->
-Delegate Access) rather than by an admin, which behaves differently for
-calendar item creation than a plain folder ACL grant. This script gathers
-the evidence needed to tell those apart:
+permission. Ruled out so far:
+  - Outlook delegate assignment (Account Settings -> Delegate Access) as the
+    source of the "Owner" entry - would show SharingPermissionFlags=Delegate
+    on Get-MailboxFolderPermission; it doesn't, this is a plain ACL grant.
+  - A stale client-side Outlook permission cache - reproduced on a brand new
+    client with a freshly created profile, so it isn't specific to one
+    machine's cache.
+Remaining, and now the leading suspect: a server-side desync between the
+"clean" ACL that Get-MailboxFolderPermission reports (read by OWA/EWS) and a
+stale or duplicate entry in the folder's raw MAPI ACL table, which is what
+Outlook (MAPI/HTTP) actually evaluates. This is a documented Exchange
+pattern - see https://blog.icewolf.ch/archive/2022/12/30/how-to-delete-mapi-permission-if-remove-mailboxfolderpermission-does-not/
+- such entries are sometimes invisible to Get-/Remove-MailboxFolderPermission
+entirely and require MFCMAPI (Other Tables -> ACL Table on the folder) to
+find and remove directly. The standard first attempt before reaching for
+MFCMAPI is forcing Exchange to rewrite the ACE cleanly via remove + re-add,
+which this script can do with -Remediate (see below).
+
+This script gathers the evidence:
   - Get-MailboxPermission (unfiltered, mailbox-level Full Access)
   - Get-MailboxFolderPermission on the target folder, including
     SharingPermissionFlags (present only on true Outlook delegate grants)
     and IsValid
   - Search-AdminAuditLog for who/when set that folder permission
 
-Makes no changes. Prints everything for manual review.
+Read-only by default; prints everything for manual review. -Remediate is the
+one opt-in action this script can take (see below) - everything else makes
+no changes.
 
 Deployed as a SyncroMSP script asset-scoped to the Exchange server itself
 (not a client endpoint) - see syncro_wrapper_debug_calendar_permission.ps1.
@@ -40,10 +55,18 @@ succeeded). The account running this must be a member of an Exchange RBAC
 role group (e.g. Organization Management, or at least View-Only
 Organization Management for Search-AdminAuditLog).
 
-Purely read-only diagnostic with no side effects to dry-run, so this was not
-worth building a Mock-SyncroModule/Test-Local.ps1 harness for (see
-syncro-new-script skill) - the first real Syncro run against the Exchange
-server is the test. Read the run log for that.
+-Remediate is the one non-read-only path: if the delegate's existing folder
+permission entry is a plain (non-Delegate, valid) ACE, it removes and
+re-adds that exact same AccessRights entry - a small, well-understood,
+instantly-repeatable action (worst case the entry is briefly gone and
+recreated within the same script run) that forces Exchange to rewrite the
+ACE cleanly. If a stale/duplicate entry sits outside what
+Get-/Remove-MailboxFolderPermission can see, this will not fix it - MFCMAPI
+against the raw ACL table is the next escalation (see link above). Because
+of this one side effect, this was still not worth a Mock-SyncroModule/
+Test-Local.ps1 harness (see syncro-new-script skill): removing and re-adding
+a folder permission is trivially reversible and safe to verify on the first
+real Syncro run.
 
 Params come through Syncro's UI (generated from the param() block below).
 #>
@@ -57,7 +80,13 @@ param(
 
     [string]$FolderName = "Calendar",
 
-    [int]$AuditLogDays = 90
+    [int]$AuditLogDays = 90,
+
+    # Remove + re-add the delegate's existing folder permission to force
+    # Exchange to rewrite the ACL entry cleanly. Only acts on a plain,
+    # already-valid, non-Delegate entry found in [3/4] - never creates a
+    # permission that wasn't already there.
+    [switch]$Remediate
 )
 
 Import-Module $env:SyncroModule
@@ -151,7 +180,23 @@ try {
             Write-Host "  CONFIRMED: '$DelegateIdentity' entry has SharingPermissionFlags=Delegate -> this was set via Outlook delegate access (Account Settings -> Delegate Access), NOT an admin ACL grant."
             Write-Host "  Delegate assignments carry their own 'deliver meeting requests to delegate only' / free-busy behavior in Outlook that a plain folder ACL doesn't - this commonly causes 'Owner on the ACL but Outlook still blocks item creation' symptoms until the delegate record itself is fixed or re-created (e.g. via the mailbox owner's Outlook, or MFCMAPI on the mailbox's PR_DELEGATES property)."
         } else {
-            Write-Host "  '$DelegateIdentity' entry has NO Delegate flag -> plain folder ACL grant, not an Outlook delegate assignment. A stale Outlook permission cache is more likely; try a full Outlook restart (Exit, verify OUTLOOK.EXE gone in Task Manager, relaunch) before further investigation."
+            Write-Host "  '$DelegateIdentity' entry has NO Delegate flag -> plain folder ACL grant, not an Outlook delegate assignment."
+            Write-Host "  If a stale client-side Outlook cache has already been ruled out (e.g. reproduced on a fresh client/profile), the leading suspect is a server-side desync between this clean ACE and a stale/duplicate entry in the folder's raw MAPI ACL table, which Outlook (MAPI) evaluates but Get-MailboxFolderPermission does not show. Re-run with -Remediate to force Exchange to rewrite this ACE (remove + re-add same rights); if that doesn't fix it, escalate to MFCMAPI directly on the folder's ACL Table."
+
+            if ($Remediate) {
+                Write-Host ""
+                Write-Host "[3/4] -Remediate: removing and re-adding '$($delegateFolderPerm.User)' ($($delegateFolderPerm.AccessRights -join ',')) on '$folderIdentity'..."
+                try {
+                    $rightsToRestore = $delegateFolderPerm.AccessRights
+                    Remove-MailboxFolderPermission -Identity $folderIdentity -User $delegateFolderPerm.User -Confirm:$false -ErrorAction Stop
+                    Add-MailboxFolderPermission -Identity $folderIdentity -User $delegateFolderPerm.User -AccessRights $rightsToRestore -ErrorAction Stop
+                    $recheck = Get-MailboxFolderPermission -Identity $folderIdentity | Where-Object { Test-IsDelegateEntry $_.User } | Select-Object -First 1
+                    Write-Host "  Done. Re-checked entry: User: $($recheck.User)  AccessRights: $($recheck.AccessRights -join ',')  IsValid: $($recheck.IsValid)"
+                    Write-Host "  Have the user fully restart Outlook (Exit, verify OUTLOOK.EXE gone in Task Manager, relaunch) and retest before concluding this did or didn't help."
+                } catch {
+                    Rmm-Alert -Category "Calendar Permission Debug" -Body "-Remediate failed to remove/re-add folder permission for '$($delegateFolderPerm.User)' on '$folderIdentity': $($_.Exception.Message)"
+                }
+            }
         }
         if (-not $delegateFolderPerm.IsValid) {
             Write-Host "  WARNING: IsValid = False on this entry - the permission record itself may be corrupted."
@@ -183,6 +228,10 @@ try {
 
 Write-Host ""
 Write-Host "=== Done ==="
-Write-Host "No changes made. Review [3/4] first: a 'Delegate' SharingPermissionFlags entry points at an Outlook-side delegate record as the real cause, not a server ACL problem."
+if ($Remediate) {
+    Write-Host "Ran with -Remediate: see [3/4] above for the remove/re-add result. Retest in Outlook after a full restart."
+} else {
+    Write-Host "No changes made. Review [3/4]: a 'Delegate' SharingPermissionFlags entry points at an Outlook-side delegate record; a plain entry with client-cache already ruled out points at a server-side MAPI ACL desync - re-run with -Remediate to attempt the standard fix."
+}
 
 exit 0

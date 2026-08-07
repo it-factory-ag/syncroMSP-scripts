@@ -21,12 +21,18 @@ default as an NTLM loopback attempt (hangs 10 min, then fails) - and even if
 it connected, SYSTEM's computer account normally holds no Exchange RBAC
 role. The logged-in account must itself be a member of an Exchange RBAC
 role group (e.g. Organization Management) for the script to work.
+
+$Remediate below is off by default (diagnostic-only run). Flip to $true and
+re-paste into Syncro once [3/4]'s diagnosis points at a plain (non-Delegate)
+folder ACE and client-side caching has already been ruled out - it removes
+and re-adds that exact permission to force Exchange to rewrite it cleanly.
 #>
 
 $MailboxIdentity  = "siziklein"
 $DelegateIdentity = "christa.stocker"
 $FolderName       = "Calendar"
 $AuditLogDays     = 90
+$Remediate        = $false
 
 Import-Module $env:SyncroModule
 
@@ -40,7 +46,9 @@ try {
     $webClient.Headers.Add("Cache-Control", "no-cache, no-store")
     $webClient.Headers.Add("Pragma", "no-cache")
     $webClient.DownloadFile($url, $localCopy)
-    & $localCopy -MailboxIdentity $MailboxIdentity -DelegateIdentity $DelegateIdentity -FolderName $FolderName -AuditLogDays $AuditLogDays
+    $remediateArg = @{}
+    if ($Remediate) { $remediateArg["Remediate"] = $true }
+    & $localCopy -MailboxIdentity $MailboxIdentity -DelegateIdentity $DelegateIdentity -FolderName $FolderName -AuditLogDays $AuditLogDays @remediateArg
     exit $LASTEXITCODE
 }
 catch {
