@@ -98,6 +98,30 @@ try {
 
 $folderIdentity = "${MailboxIdentity}:\$FolderName"
 
+# Get-MailboxPermission/-MailboxFolderPermission return the resolved
+# DisplayName in their User field (e.g. "Christa Stocker"), not whatever
+# identity form was passed in (e.g. "christa.stocker" or an email address) -
+# a plain "-like *$DelegateIdentity*" match against that field silently
+# misses every real match unless the two happen to be spelled the same.
+# Resolve the delegate up front and match against every known identity form.
+$delegateMatchTerms = @($DelegateIdentity)
+try {
+    $delegateRecipient = Get-Recipient -Identity $DelegateIdentity -ErrorAction Stop
+    $delegateMatchTerms += @($delegateRecipient.DisplayName, $delegateRecipient.Alias, $delegateRecipient.Name, $delegateRecipient.PrimarySmtpAddress.ToString()) | Where-Object { $_ }
+    Write-Host "Resolved delegate '$DelegateIdentity' to: $($delegateRecipient.DisplayName) <$($delegateRecipient.PrimarySmtpAddress)>"
+} catch {
+    Write-Host "WARNING: Could not resolve '$DelegateIdentity' via Get-Recipient ($($_.Exception.Message)) - matching against the raw identity string only, which may miss entries listed under a display name."
+}
+function Test-IsDelegateEntry {
+    param($UserField)
+    if (-not $UserField) { return $false }
+    $text = $UserField.ToString()
+    foreach ($term in $delegateMatchTerms) {
+        if ($text -like "*$term*") { return $true }
+    }
+    return $false
+}
+
 # --- [2/4] Mailbox-level permissions (unfiltered) ---
 Write-Host ""
 Write-Host "[2/4] Get-MailboxPermission (unfiltered)..."
@@ -105,7 +129,7 @@ $mbxPerms = Get-MailboxPermission -Identity $MailboxIdentity
 $mbxPerms | ForEach-Object {
     Write-Host "  User: $($_.User)  AccessRights: $($_.AccessRights -join ',')  IsInherited: $($_.IsInherited)  Deny: $($_.Deny)"
 }
-$delegateMbxPerm = $mbxPerms | Where-Object { $_.User -like "*$DelegateIdentity*" }
+$delegateMbxPerm = $mbxPerms | Where-Object { Test-IsDelegateEntry $_.User }
 if ($delegateMbxPerm) {
     Write-Host "  NOTE: '$DelegateIdentity' HAS mailbox-level permission(s) above."
 } else {
@@ -121,7 +145,7 @@ try {
         $flags = if ($_.SharingPermissionFlags) { $_.SharingPermissionFlags -join ',' } else { "(none)" }
         Write-Host "  User: $($_.User)  AccessRights: $($_.AccessRights -join ',')  SharingPermissionFlags: $flags  IsValid: $($_.IsValid)"
     }
-    $delegateFolderPerm = $folderPerms | Where-Object { $_.User -like "*$DelegateIdentity*" }
+    $delegateFolderPerm = $folderPerms | Where-Object { Test-IsDelegateEntry $_.User } | Select-Object -First 1
     if ($delegateFolderPerm) {
         if ($delegateFolderPerm.SharingPermissionFlags -and $delegateFolderPerm.SharingPermissionFlags -contains "Delegate") {
             Write-Host "  CONFIRMED: '$DelegateIdentity' entry has SharingPermissionFlags=Delegate -> this was set via Outlook delegate access (Account Settings -> Delegate Access), NOT an admin ACL grant."
