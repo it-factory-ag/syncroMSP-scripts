@@ -22,15 +22,23 @@ Makes no changes. Prints everything for manual review.
 
 Deployed as a SyncroMSP script asset-scoped to the Exchange server itself
 (not a client endpoint) - see syncro_wrapper_debug_calendar_permission.ps1.
-The Syncro agent runs scripts as SYSTEM in a plain PowerShell host, which
-does NOT auto-load Exchange cmdlets the way the Exchange Management Shell
-shortcut does, so this script bootstraps them itself via RemoteExchange.ps1.
-That also means the computer account SYSTEM runs as must actually hold an
-Exchange RBAC role (e.g. via a management role assignment on "Exchange
-Servers" or the local machine account) for View-Only Organization
-Management-level cmdlets (Search-AdminAuditLog) to succeed - if that's not
-set up, expect an access-denied Rmm-Alert from [4/4] rather than a silent
-failure.
+
+Run as: the logged-in user, not SYSTEM (set this in Syncro's "Run As" option
+when executing the script). Exchange cmdlets aren't loaded by default in a
+plain PowerShell host, so this script bootstraps them itself via
+RemoteExchange.ps1 - the same bootstrap the EMS shortcut runs, present on
+every on-prem Exchange 2013+ install. That bootstrap internally opens a
+WinRM session to the local server by hostname, and running as SYSTEM makes
+that a same-machine NTLM authentication attempt, which Windows blocks by
+default (the "NTLM loopback" protection) - it hangs for the full 10-minute
+Connect-ExchangeServer retry window and then fails outright. Running as an
+interactive logged-in domain admin uses Kerberos instead, which isn't
+subject to that restriction, and also means the identity actually holds an
+Exchange RBAC role (SYSTEM's computer account normally holds none, which
+would fail Search-AdminAuditLog in [4/4] even if the connection itself
+succeeded). The account running this must be a member of an Exchange RBAC
+role group (e.g. Organization Management, or at least View-Only
+Organization Management for Search-AdminAuditLog).
 
 Purely read-only diagnostic with no side effects to dry-run, so this was not
 worth building a Mock-SyncroModule/Test-Local.ps1 harness for (see

@@ -13,6 +13,14 @@ This is a thin wrapper: it pulls the current Debug-CalendarPermission.ps1
 from this repo and runs it, so future fixes in the repo take effect without
 editing this wrapper again. Debug-CalendarPermission.ps1 is the source of
 truth for the logic.
+
+IMPORTANT: run this with Syncro's "Run As" set to the logged-in user, NOT
+System. As SYSTEM, the Exchange cmdlet bootstrap inside the real script
+opens a WinRM session to the server's own hostname, which Windows blocks by
+default as an NTLM loopback attempt (hangs 10 min, then fails) - and even if
+it connected, SYSTEM's computer account normally holds no Exchange RBAC
+role. The logged-in account must itself be a member of an Exchange RBAC
+role group (e.g. Organization Management) for the script to work.
 #>
 
 $MailboxIdentity  = "siziklein"
