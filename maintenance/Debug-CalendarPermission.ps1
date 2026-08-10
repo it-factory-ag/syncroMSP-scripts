@@ -13,16 +13,25 @@ permission. Ruled out so far:
   - A stale client-side Outlook permission cache - reproduced on a brand new
     client with a freshly created profile, so it isn't specific to one
     machine's cache.
-Remaining, and now the leading suspect: a server-side desync between the
-"clean" ACL that Get-MailboxFolderPermission reports (read by OWA/EWS) and a
-stale or duplicate entry in the folder's raw MAPI ACL table, which is what
-Outlook (MAPI/HTTP) actually evaluates. This is a documented Exchange
-pattern - see https://blog.icewolf.ch/archive/2022/12/30/how-to-delete-mapi-permission-if-remove-mailboxfolderpermission-does-not/
-- such entries are sometimes invisible to Get-/Remove-MailboxFolderPermission
-entirely and require MFCMAPI (Other Tables -> ACL Table on the folder) to
-find and remove directly. The standard first attempt before reaching for
-MFCMAPI is forcing Exchange to rewrite the ACE cleanly via remove + re-add,
-which this script can do with -Remediate (see below).
+  - A stale/incorrectly-written ACE fixed by forcing Exchange to rewrite it
+    (remove + re-add via -Remediate) - tried against this exact ticket's
+    mailbox/delegate and did NOT fix it, so whatever's wrong survives a
+    clean rewrite of the "visible" ACE.
+Two suspects remain, in escalation order:
+  1. A stale/duplicate entry sitting in the folder's raw MAPI ACL table
+     *outside* what Get-/Remove-MailboxFolderPermission can see or touch at
+     all - a documented Exchange pattern, see
+     https://blog.icewolf.ch/archive/2022/12/30/how-to-delete-mapi-permission-if-remove-mailboxfolderpermission-does-not/
+     - requires MFCMAPI (Other Tables -> ACL Table on the folder) to find
+     and remove directly; a cmdlet-level remove+re-add (already tried, see
+     above) does not reach these.
+  2. A duplicate/orphaned Calendar-type folder - if a second folder with
+     FolderType Calendar exists in the mailbox (e.g. left over from a
+     restore/migration), Outlook's MAPI client can resolve the *default*
+     calendar via a different, hidden pointer than the one
+     Get-MailboxFolderPermission/OWA operate on, so the permission being
+     checked and fixed isn't the one Outlook is actually opening. [5/5]
+     below checks for this via Get-MailboxFolderStatistics.
 
 This script gathers the evidence:
   - Get-MailboxPermission (unfiltered, mailbox-level Full Access)
@@ -30,6 +39,8 @@ This script gathers the evidence:
     SharingPermissionFlags (present only on true Outlook delegate grants)
     and IsValid
   - Search-AdminAuditLog for who/when set that folder permission
+  - Get-MailboxFolderStatistics -FolderScope Calendar, to catch a duplicate
+    Calendar-type folder
 
 Read-only by default; prints everything for manual review. -Remediate is the
 one opt-in action this script can take (see below) - everything else makes
@@ -50,7 +61,7 @@ Connect-ExchangeServer retry window and then fails outright. Running as an
 interactive logged-in domain admin uses Kerberos instead, which isn't
 subject to that restriction, and also means the identity actually holds an
 Exchange RBAC role (SYSTEM's computer account normally holds none, which
-would fail Search-AdminAuditLog in [4/4] even if the connection itself
+would fail Search-AdminAuditLog in [4/5] even if the connection itself
 succeeded). The account running this must be a member of an Exchange RBAC
 role group (e.g. Organization Management, or at least View-Only
 Organization Management for Search-AdminAuditLog).
@@ -84,7 +95,7 @@ param(
 
     # Remove + re-add the delegate's existing folder permission to force
     # Exchange to rewrite the ACL entry cleanly. Only acts on a plain,
-    # already-valid, non-Delegate entry found in [3/4] - never creates a
+    # already-valid, non-Delegate entry found in [3/5] - never creates a
     # permission that wasn't already there.
     [switch]$Remediate
 )
@@ -114,9 +125,9 @@ if (-not (Get-Command Get-Mailbox -ErrorAction SilentlyContinue)) {
 Write-Host "=== Calendar Permission Debug ==="
 Write-Host "Mailbox: $MailboxIdentity  |  Delegate/User: $DelegateIdentity  |  Folder: $FolderName  |  $(Get-Date)"
 
-# --- [1/4] Mailbox sanity check ---
+# --- [1/5] Mailbox sanity check ---
 Write-Host ""
-Write-Host "[1/4] Mailbox lookup..."
+Write-Host "[1/5] Mailbox lookup..."
 try {
     $mbx = Get-Mailbox -Identity $MailboxIdentity -ErrorAction Stop
     Write-Host "  Found: $($mbx.DisplayName) <$($mbx.PrimarySmtpAddress)> - Type: $($mbx.RecipientTypeDetails)"
@@ -170,9 +181,9 @@ function Test-IsDelegateEntry {
     return $false
 }
 
-# --- [2/4] Mailbox-level permissions (unfiltered) ---
+# --- [2/5] Mailbox-level permissions (unfiltered) ---
 Write-Host ""
-Write-Host "[2/4] Get-MailboxPermission (unfiltered)..."
+Write-Host "[2/5] Get-MailboxPermission (unfiltered)..."
 $mbxPerms = Get-MailboxPermission -Identity $MailboxIdentity
 $mbxPerms | ForEach-Object {
     Write-Host "  User: $($_.User)  AccessRights: $($_.AccessRights -join ',')  IsInherited: $($_.IsInherited)  Deny: $($_.Deny)"
@@ -184,9 +195,9 @@ if ($delegateMbxPerm) {
     Write-Host "  NOTE: '$DelegateIdentity' has NO direct or group-based mailbox-level permission (expected if only folder-level access was granted)."
 }
 
-# --- [3/4] Folder-level permissions on the target folder ---
+# --- [3/5] Folder-level permissions on the target folder ---
 Write-Host ""
-Write-Host "[3/4] Get-MailboxFolderPermission on '$folderIdentity'..."
+Write-Host "[3/5] Get-MailboxFolderPermission on '$folderIdentity'..."
 try {
     $folderPerms = Get-MailboxFolderPermission -Identity $folderIdentity -ErrorAction Stop
     $folderPerms | ForEach-Object {
@@ -204,7 +215,7 @@ try {
 
             if ($Remediate) {
                 Write-Host ""
-                Write-Host "[3/4] -Remediate: removing and re-adding '$($delegateFolderPerm.User)' ($($delegateFolderPerm.AccessRights -join ',')) on '$folderIdentity'..."
+                Write-Host "[3/5] -Remediate: removing and re-adding '$($delegateFolderPerm.User)' ($($delegateFolderPerm.AccessRights -join ',')) on '$folderIdentity'..."
                 try {
                     $rightsToRestore = $delegateFolderPerm.AccessRights
                     Remove-MailboxFolderPermission -Identity $folderIdentity -User $delegateFolderPerm.User -Confirm:$false -ErrorAction Stop
@@ -227,9 +238,9 @@ try {
     Rmm-Alert -Category "Calendar Permission Debug" -Body "Could not read folder permissions on '$folderIdentity': $($_.Exception.Message)"
 }
 
-# --- [4/4] Admin audit log: who/when changed this folder's permissions ---
+# --- [4/5] Admin audit log: who/when changed this folder's permissions ---
 Write-Host ""
-Write-Host "[4/4] Search-AdminAuditLog for folder permission changes on '$MailboxIdentity' (last $AuditLogDays days)..."
+Write-Host "[4/5] Search-AdminAuditLog for folder permission changes on '$MailboxIdentity' (last $AuditLogDays days)..."
 try {
     $auditEntries = Search-AdminAuditLog -Cmdlets Add-MailboxFolderPermission, Set-MailboxFolderPermission, Remove-MailboxFolderPermission `
         -ObjectIds "*$MailboxIdentity*" -StartDate (Get-Date).AddDays(-$AuditLogDays) -ErrorAction Stop
@@ -239,18 +250,42 @@ try {
             Write-Host "  [$($_.RunDate)] $($_.Caller) ran $($_.CmdletName) - $params"
         }
     } else {
-        Write-Host "  No matching audit log entries found. Either admin audit logging is disabled/not retaining $AuditLogDays days, or this permission was never set via an EMS cmdlet (consistent with an Outlook-side delegate assignment - see [3/4])."
+        Write-Host "  No matching audit log entries found. Either admin audit logging is disabled/not retaining $AuditLogDays days, or this permission was never set via an EMS cmdlet (consistent with an Outlook-side delegate assignment - see [3/5])."
     }
 } catch {
     Rmm-Alert -Category "Calendar Permission Debug" -Body "Could not query admin audit log: $($_.Exception.Message) (requires View-Only Organization Management or higher role; verify with Get-AdminAuditLogConfig -> AdminAuditLogEnabled)"
 }
 
+# --- [5/5] Duplicate/orphaned Calendar-type folders ---
+# Outlook's MAPI client resolves the *default* calendar via a hidden pointer
+# on the mailbox root, not by folder name/path - if a second folder of
+# FolderType Calendar exists (e.g. left behind by a restore/migration),
+# Outlook can be rendering a completely different folder than the one [3/5]
+# just checked and (optionally) remediated, which would explain why fixing
+# that folder's permission didn't change anything in Outlook.
+Write-Host ""
+Write-Host "[5/5] Checking for duplicate Calendar-type folders (Get-MailboxFolderStatistics -FolderScope Calendar)..."
+try {
+    $calendarFolders = Get-MailboxFolderStatistics -Identity $MailboxIdentity -FolderScope Calendar -ErrorAction Stop
+    $calendarFolders | ForEach-Object {
+        Write-Host "  FolderPath: $($_.FolderPath)  FolderType: $($_.FolderType)  ItemsInFolder: $($_.ItemsInFolder)  FolderId: $($_.FolderId)"
+    }
+    $topLevelCalendars = @($calendarFolders | Where-Object { $_.FolderType -eq 'Calendar' })
+    if ($topLevelCalendars.Count -gt 1) {
+        Write-Host "  WARNING: $($topLevelCalendars.Count) folders of FolderType 'Calendar' found. Compare their FolderPath above against '$folderIdentity' - if Outlook is actually opening a different, orphaned Calendar folder, [3/5]'s check (and -Remediate) was against the wrong folder. That other folder's own permissions would need to be checked/fixed separately, or the duplicate merged/removed."
+    } else {
+        Write-Host "  Only one Calendar-type folder found - not a duplicate-folder issue."
+    }
+} catch {
+    Rmm-Alert -Category "Calendar Permission Debug" -Body "Could not check for duplicate calendar folders on '$MailboxIdentity': $($_.Exception.Message)"
+}
+
 Write-Host ""
 Write-Host "=== Done ==="
 if ($Remediate) {
-    Write-Host "Ran with -Remediate: see [3/4] above for the remove/re-add result. Retest in Outlook after a full restart."
+    Write-Host "Ran with -Remediate: see [3/5] above for the remove/re-add result. Retest in Outlook after a full restart. If the problem persists, check [5/5] for a duplicate Calendar folder, then escalate to MFCMAPI on the folder's raw ACL Table (see header comment)."
 } else {
-    Write-Host "No changes made. Review [3/4]: a 'Delegate' SharingPermissionFlags entry points at an Outlook-side delegate record; a plain entry with client-cache already ruled out points at a server-side MAPI ACL desync - re-run with -Remediate to attempt the standard fix."
+    Write-Host "No changes made. Review [3/5]: a 'Delegate' SharingPermissionFlags entry points at an Outlook-side delegate record; a plain entry with client-cache already ruled out points at a server-side MAPI ACL desync - re-run with -Remediate to attempt the standard fix. If -Remediate doesn't help, check [5/5] for a duplicate Calendar folder, then escalate to MFCMAPI."
 }
 
 exit 0
