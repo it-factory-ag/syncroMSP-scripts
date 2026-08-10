@@ -23,16 +23,26 @@ role. The logged-in account must itself be a member of an Exchange RBAC
 role group (e.g. Organization Management) for the script to work.
 
 $Remediate below is off by default (diagnostic-only run). Flip to $true and
-re-paste into Syncro once [3/4]'s diagnosis points at a plain (non-Delegate)
+re-paste into Syncro once [3/6]'s diagnosis points at a plain (non-Delegate)
 folder ACE and client-side caching has already been ruled out - it removes
 and re-adds that exact permission to force Exchange to rewrite it cleanly.
+Already tried against this ticket's mailbox/delegate and did NOT fix it, so
+left off here now.
+
+$CheckCorruption runs a broader New-MailboxRepairRequest -DetectOnly scan
+([6/6]) - detect-only, never repairs automatically. Takes several minutes
+(polls each repair job to completion before starting the next) - if Syncro
+has a script execution timeout shorter than ~10 minutes, this may not finish
+within it; check the run log either way, the underlying repair requests keep
+running server-side even if the Syncro script itself times out.
 #>
 
 $MailboxIdentity  = "siziklein"
 $DelegateIdentity = "christa.stocker"
 $FolderName       = "Calendar"
 $AuditLogDays     = 90
-$Remediate        = $true
+$Remediate        = $false
+$CheckCorruption  = $true
 
 Import-Module $env:SyncroModule
 
@@ -46,9 +56,10 @@ try {
     $webClient.Headers.Add("Cache-Control", "no-cache, no-store")
     $webClient.Headers.Add("Pragma", "no-cache")
     $webClient.DownloadFile($url, $localCopy)
-    $remediateArg = @{}
-    if ($Remediate) { $remediateArg["Remediate"] = $true }
-    & $localCopy -MailboxIdentity $MailboxIdentity -DelegateIdentity $DelegateIdentity -FolderName $FolderName -AuditLogDays $AuditLogDays @remediateArg
+    $extraArgs = @{}
+    if ($Remediate) { $extraArgs["Remediate"] = $true }
+    if ($CheckCorruption) { $extraArgs["CheckCorruption"] = $true }
+    & $localCopy -MailboxIdentity $MailboxIdentity -DelegateIdentity $DelegateIdentity -FolderName $FolderName -AuditLogDays $AuditLogDays @extraArgs
     exit $LASTEXITCODE
 }
 catch {
