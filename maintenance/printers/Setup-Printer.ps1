@@ -41,7 +41,10 @@ param(
 
     [string]$DriverZipPath = "C:\temp\hp_upd_pcl6.zip",
 
-    [string]$ExtractDir = "C:\temp\hp_upd_pcl6"
+    [string]$ExtractDir = "C:\temp\hp_upd_pcl6",
+
+    [ValidateSet("Color", "Monochrome")]
+    [string]$ColorMode = "Color"
 )
 
 function Get-InfDriverCandidates {
@@ -99,11 +102,13 @@ try {
     New-Item -Path (Split-Path $DriverZipPath) -ItemType Directory -Force | Out-Null
     (New-Object Net.WebClient).DownloadFile($DriverUrl, $DriverZipPath)
 
-    # Match on port (IP), not just name, so a printer left over under a
-    # previous/renamed -PrinterName on this same IP still gets cleaned up -
-    # a printer must be removed before its port can be removed.
-    Write-Host "Removing existing printer(s) on '$PrinterName' or port '$PortName' if present..."
-    Get-Printer -ErrorAction SilentlyContinue | Where-Object { $_.Name -eq $PrinterName -or $_.PortName -eq $PortName } | Remove-Printer -ErrorAction SilentlyContinue
+    # Match on name only - not port - so a second queue sharing this port
+    # (e.g. a "letterhead" queue for the same physical printer/IP) doesn't
+    # get deleted by this run. A printer must be removed before its port can
+    # be removed; Remove-PrinterPort below silently no-ops if another queue
+    # is still using the port.
+    Write-Host "Removing existing printer '$PrinterName' if present..."
+    Get-Printer -Name $PrinterName -ErrorAction SilentlyContinue | Remove-Printer -ErrorAction SilentlyContinue
     Get-PrinterPort -Name $PortName -ErrorAction SilentlyContinue | Remove-PrinterPort -ErrorAction SilentlyContinue
 
     if (Test-Path $ExtractDir) {
@@ -178,14 +183,31 @@ try {
     }
     Write-Host "Installed printer driver: $installedDriverName"
 
-    Write-Host "Creating printer port $PortName ($PrinterIP)..."
-    Add-PrinterPort -Name $PortName -PrinterHostAddress $PrinterIP
+    if (Get-PrinterPort -Name $PortName -ErrorAction SilentlyContinue) {
+        Write-Host "Port $PortName already exists - reusing it (e.g. a second queue sharing this printer's port)."
+    } else {
+        Write-Host "Creating printer port $PortName ($PrinterIP)..."
+        Add-PrinterPort -Name $PortName -PrinterHostAddress $PrinterIP
+    }
 
     Write-Host "Creating printer $PrinterName..."
     Add-Printer -Name $PrinterName -DriverName $installedDriverName -PortName $PortName
 
     if (-not (Get-Printer -Name $PrinterName -ErrorAction SilentlyContinue)) {
         throw "Printer '$PrinterName' was not found after Add-Printer."
+    }
+
+    Write-Host "Setting default color mode to $ColorMode..."
+    try {
+        Set-PrintConfiguration -PrinterName $PrinterName -ColorMode $ColorMode -ErrorAction Stop
+    } catch {
+        # Some drivers (e.g. HP UPD) query the physical device before applying
+        # this, so it can fail if the printer is offline/unreachable at setup
+        # time even though the queue itself was created fine. Don't fail the
+        # whole run over it - the queue falls back to the driver default
+        # (usually Color) until this is set successfully on a later run.
+        Write-Host "WARNING: Could not set color mode to $ColorMode (printer may be unreachable): $($_.Exception.Message)"
+        Rmm-Alert -Category "Printer Setup" -Body "Printer '$PrinterName' ($PrinterIP) was set up, but ColorMode '$ColorMode' could not be applied - printer was likely unreachable. Re-run the setup script once the printer is online."
     }
 
     Write-Host "Cleaning up temp files..."
