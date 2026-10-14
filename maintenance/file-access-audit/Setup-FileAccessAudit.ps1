@@ -226,14 +226,28 @@ try {
 
     $fileServerUrl = (Invoke-RestMethod -Uri "$server/api/v2.1/upload-links/$token/upload/" -UseBasicParsing).upload_link + '?ret-json=1'
 
-    # Invoke-RestMethod -Form is PowerShell 6+ only - build the multipart body with HttpClient
-    # so this also runs under Windows PowerShell 5.1.
+    # Multipart body built by hand: Invoke-RestMethod -Form is PowerShell 6+ only, and .NET
+    # Framework's MultipartFormDataContent writes unquoted names (name=file) plus a filename*
+    # parameter, which Seafile's fileserver mime parser rejects with "400 Bad request.".
+    $boundary = [Guid]::NewGuid().ToString('N')
+    $utf8     = New-Object Text.UTF8Encoding($false)
+    $head = "--$boundary`r`n" +
+            "Content-Disposition: form-data; name=`"parent_dir`"`r`n`r`n" +
+            "$parentDir`r`n" +
+            "--$boundary`r`n" +
+            "Content-Disposition: form-data; name=`"file`"; filename=`"$uploadName`"`r`n" +
+            "Content-Type: application/octet-stream`r`n`r`n"
+    $tail = "`r`n--$boundary--`r`n"
+    $stream = New-Object IO.MemoryStream
+    foreach ($chunk in @($utf8.GetBytes($head), [IO.File]::ReadAllBytes($reportOut), $utf8.GetBytes($tail))) {
+        $stream.Write($chunk, 0, $chunk.Length)
+    }
+
     Add-Type -AssemblyName System.Net.Http
-    $client = New-Object System.Net.Http.HttpClient
-    $form   = New-Object System.Net.Http.MultipartFormDataContent
-    $form.Add((New-Object System.Net.Http.StringContent($parentDir)), 'parent_dir')
-    $form.Add((New-Object System.Net.Http.ByteArrayContent(, [IO.File]::ReadAllBytes($reportOut))), 'file', $uploadName)
-    $response = $client.PostAsync($fileServerUrl, $form).Result
+    $client  = New-Object System.Net.Http.HttpClient
+    $content = New-Object System.Net.Http.ByteArrayContent(, $stream.ToArray())
+    $content.Headers.ContentType = [System.Net.Http.Headers.MediaTypeHeaderValue]::Parse("multipart/form-data; boundary=$boundary")
+    $response = $client.PostAsync($fileServerUrl, $content).Result
     $body     = $response.Content.ReadAsStringAsync().Result
     if (-not $response.IsSuccessStatusCode) {
         throw "HTTP $([int]$response.StatusCode): $body"
