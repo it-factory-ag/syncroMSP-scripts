@@ -10,6 +10,11 @@ One-time setup of file access statistics for the AVOR-Exelprogramme share
 This is a thin wrapper: it pulls the current Setup-FileAccessAudit.ps1 from this repo and
 executes it locally. That script is the source of truth - keep this wrapper's parameters
 in sync if they change.
+
+Optional Seafile upload of the weekly reports: define a Syncro script variable named
+"SeafileUploadLink" (Runtime variable, value e.g. https://cloud-storage.itfactory.ch/u/d/<token>/).
+Do NOT hardcode the link here - this repo is public and the token grants upload access.
+Leave it empty to keep reports local only.
 #>
 
 Import-Module $env:SyncroModule
@@ -26,7 +31,10 @@ try {
     $webClient.Headers.Add("Cache-Control", "no-cache, no-store")
     $webClient.Headers.Add("Pragma", "no-cache")
     $webClient.DownloadFile($url, $localCopy)
-    & $localCopy -TargetPath $TargetPath
+    $setupArgs = @{ TargetPath = $TargetPath }
+    # $SeafileUploadLink is injected by Syncro as a script variable, if defined.
+    if ($SeafileUploadLink) { $setupArgs.SeafileUploadLink = $SeafileUploadLink }
+    & $localCopy @setupArgs
     Write-Host "File access audit setup completed for '$TargetPath'."
     exit 0
 }

@@ -18,6 +18,9 @@ What this script does:
      directory-level events so folder browsing / this setup script's own recursive SACL
      sweep isn't counted either) and Report-FileAccess.ps1 to $ScriptDir
   5. Registers the scheduled tasks for daily collection and the weekly report
+  6. Optional (-SeafileUploadLink): the weekly report script additionally uploads each
+     report CSV to a Seafile upload link (e.g. https://cloud-storage.itfactory.ch/u/d/<token>/).
+     Upload results/errors are logged to FileAccess_Upload.log in $ReportDir.
 #>
 
 [CmdletBinding()]
@@ -30,10 +33,18 @@ param(
     [int]$SecurityLogSizeMB = 1024,
     [string]$CollectTime = "23:55",
     [string]$ReportDay = "Monday",
-    [string]$ReportTime = "06:00"
+    [string]$ReportTime = "06:00",
+
+    # Seafile upload link (".../u/d/<token>/"). Empty = no upload, reports stay local only.
+    # Pass it in at runtime (e.g. Syncro script variable) - never commit the token, this repo is public.
+    [string]$SeafileUploadLink = ""
 )
 
 $ErrorActionPreference = "Stop"
+
+if ($SeafileUploadLink -and $SeafileUploadLink -notmatch '^https://[^/]+/u/d/[0-9a-f]+/?$') {
+    throw "SeafileUploadLink '$SeafileUploadLink' is not a Seafile upload link (expected https://<server>/u/d/<token>/)."
+}
 
 if (-not (Test-Path $TargetPath)) {
     throw "TargetPath '$TargetPath' does not exist. Provide the real local path on the server (not the client drive letter)."
@@ -177,6 +188,64 @@ $reportScriptContent = @"
 } | Sort-Object AccessCount -Descending |
   Export-Csv -Path `$reportOut -NoTypeInformation -Encoding UTF8 -Delimiter ';'
 "@
+
+if ($SeafileUploadLink) {
+    # Single-quoted here-string: no backtick escaping needed, values are injected via the header.
+    $reportScriptContent += @"
+
+`$uploadLink = '$SeafileUploadLink'
+`$logFile    = Join-Path '$ReportDir' 'FileAccess_Upload.log'
+"@
+    $reportScriptContent += @'
+
+# Upload the report to the Seafile upload link. Prefixed with the computer name so reports
+# from several servers can share one upload link.
+$uploadName = "$($env:COMPUTERNAME)_$(Split-Path $reportOut -Leaf)"
+# No accesses in the last 7 days: depending on the PowerShell version Export-Csv writes
+# either no file or an empty one for an empty pipeline - nothing worth uploading either way.
+if (-not (Test-Path $reportOut) -or (Get-Item $reportOut).Length -eq 0) {
+    "$(Get-Date -Format 's') SKIP  $uploadName : no accesses in the last 7 days, no report written" | Add-Content -Path $logFile
+    exit 0
+}
+try {
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+    $null = $uploadLink -match '^(https://[^/]+)/u/d/([0-9a-f]+)/?$'
+    $server = $Matches[1]
+    $token  = $Matches[2]
+
+    # The fileserver only accepts parent_dir if it exactly equals the upload link's shared
+    # folder path (isParentMatched), and the anonymous API doesn't return that path - the
+    # upload page itself embeds it in its pageOptions as `path: "..."` (Django escapejs).
+    $webClient = New-Object Net.WebClient
+    $webClient.Encoding = [Text.Encoding]::UTF8
+    $page = $webClient.DownloadString("$server/u/d/$token/")
+    if ($page -cnotmatch '\spath: "([^"]*)"') {
+        throw "Could not read the target folder from the upload link page (link expired, deleted or password-protected?)."
+    }
+    $parentDir = [regex]::Unescape($Matches[1])
+
+    $fileServerUrl = (Invoke-RestMethod -Uri "$server/api/v2.1/upload-links/$token/upload/" -UseBasicParsing).upload_link + '?ret-json=1'
+
+    # Invoke-RestMethod -Form is PowerShell 6+ only - build the multipart body with HttpClient
+    # so this also runs under Windows PowerShell 5.1.
+    Add-Type -AssemblyName System.Net.Http
+    $client = New-Object System.Net.Http.HttpClient
+    $form   = New-Object System.Net.Http.MultipartFormDataContent
+    $form.Add((New-Object System.Net.Http.StringContent($parentDir)), 'parent_dir')
+    $form.Add((New-Object System.Net.Http.ByteArrayContent(, [IO.File]::ReadAllBytes($reportOut))), 'file', $uploadName)
+    $response = $client.PostAsync($fileServerUrl, $form).Result
+    $body     = $response.Content.ReadAsStringAsync().Result
+    if (-not $response.IsSuccessStatusCode) {
+        throw "HTTP $([int]$response.StatusCode): $body"
+    }
+    "$(Get-Date -Format 's') OK    $uploadName -> $parentDir" | Add-Content -Path $logFile
+}
+catch {
+    "$(Get-Date -Format 's') ERROR $uploadName : $($_.Exception.Message)" | Add-Content -Path $logFile
+    exit 1
+}
+'@
+}
 Set-Content -Path $reportScriptPath -Value $reportScriptContent -Encoding UTF8
 
 Write-Host "Scripts created: $collectScriptPath, $reportScriptPath" -ForegroundColor Green
@@ -191,4 +260,7 @@ $reportTrigger = New-ScheduledTaskTrigger -Weekly -DaysOfWeek $ReportDay -At $Re
 Register-ScheduledTask -TaskName "FileAccessAudit - Weekly Report" -Action $reportAction -Trigger $reportTrigger -User "SYSTEM" -RunLevel Highest -Force | Out-Null
 
 Write-Host "Scheduled tasks registered: 'FileAccessAudit - Daily Collection' (daily at $CollectTime), 'FileAccessAudit - Weekly Report' ($ReportDay at $ReportTime)." -ForegroundColor Green
+if ($SeafileUploadLink) {
+    Write-Host "Weekly reports will also be uploaded to Seafile (log: $(Join-Path $ReportDir 'FileAccess_Upload.log'))." -ForegroundColor Green
+}
 Write-Host "Setup complete. Raw data: $masterCsv | Weekly reports: $ReportDir" -ForegroundColor Green
