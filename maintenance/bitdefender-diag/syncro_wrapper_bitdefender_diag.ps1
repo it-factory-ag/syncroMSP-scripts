@@ -14,14 +14,16 @@ this wrapper again. Debug-BitdefenderPortLeak.ps1 is the source of truth for the
 logic.
 #>
 
-param(
-    [string]$Mode          = "Install",
-    [int]$MonitorMinutes   = 15,
-    [int]$IntervalSeconds  = 10,
-    [int]$Capture          = 1,
-    [int]$Reboot           = 0,
-    [string]$Targets       = "34.120.68.241,34.54.215.149"
-)
+# No param() block on purpose: Syncro injects Script Variables as plain assignments at the
+# top of the script, which would push param() off the first line and break it. Optional
+# Syncro variables (Dropdown/Runtime) with these exact names override the defaults below:
+#   Mode (Install|Upload), MonitorMinutes, IntervalSeconds, Capture (1|0), Reboot (0|1), Targets
+if (-not $Mode)            { $Mode            = "Install" }
+if (-not $MonitorMinutes)  { $MonitorMinutes  = 15 }
+if (-not $IntervalSeconds) { $IntervalSeconds = 10 }
+if ("$Capture" -eq "")     { $Capture         = 1 }
+if ("$Reboot" -eq "")      { $Reboot          = 0 }
+if (-not $Targets)         { $Targets         = "34.120.68.241,34.54.215.149" }
 
 Import-Module $env:SyncroModule
 

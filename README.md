@@ -173,7 +173,7 @@ The Windows-created `OpenSSH-Server-In-TCP` firewall rule is not scoped to a net
 
 ### `maintenance/bitdefender-diag/Debug-BitdefenderPortLeak.ps1`
 
-Diagnostic for a Bitdefender GravityZone agent (`EPSecurityService`) that fills the dynamic TCP port range within minutes after boot (System log `Tcpip` 4227/4231), after which new outbound connections of other programs fail. Not run directly in Syncro — `syncro_wrapper_bitdefender_diag.ps1` is the thin wrapper to paste into **Scripting → Scripts** (same download-from-GitHub pattern as the other wrappers).
+Diagnostic for a Bitdefender GravityZone agent (`EPSecurityService`) that fills the dynamic TCP port range within minutes after boot (System log `Tcpip` 4227/4231), after which new outbound connections of other programs fail. Not run directly in Syncro — `syncro_wrapper_bitdefender_diag.ps1` is the thin wrapper to paste into **Scripting → Scripts** (same download-from-GitHub pattern as the other wrappers). The wrapper deliberately has no `param()` block: Syncro injects Script Variables as assignments at the top of the script, which breaks a `param()` block. To choose the mode, add a **Dropdown** Script Variable `Mode` with the values `Install` / `Upload` in the script editor (without it, the wrapper runs `Install`); `MonitorMinutes`, `IntervalSeconds`, `Capture`, `Reboot`, `Targets` can be added the same way if needed.
 
 Once the ports are exhausted, the Syncro agent itself can no longer open new connections — a Syncro script started "right after the reboot" may never arrive, and its result can't be reported back. The script therefore works in three modes:
 
