@@ -26,6 +26,7 @@ PowerShell scripts deployed as SyncroMSP RMM scripts. All scripts use `Import-Mo
 | `maintenance/Debug-CalendarPermission.ps1` | Diagnostic (+ opt-in `-Remediate` ACE rewrite, `-CheckCorruption` mailbox repair scan) for "Owner on Get-MailboxFolderPermission but Outlook still blocks calendar item creation" (OWA works fine, Outlook crashes in EMSMDB32.DLL opening the mailbox) — not a permissions problem, points at store/folder corruption; `maintenance/syncro_wrapper_debug_calendar_permission.ps1` is the thin wrapper to paste into SyncroMSP, scoped to the Exchange server asset, Run As logged-in user |
 | `maintenance/temp-ssh-access/Enable-TempSSHAccess.ps1` | Temporarily enables OpenSSH Server for a remote support session (installs the capability if missing, starts `sshd`, opens the firewall rule, optionally deploys an `-SshPublicKey`); auto-disables itself again after `-DurationMinutes` (default 60) via a one-time Scheduled Task; `maintenance/temp-ssh-access/syncro_wrapper_enable_temp_ssh_access.ps1` is the thin wrapper to paste into SyncroMSP |
 | `maintenance/temp-ssh-access/Disable-TempSSHAccess.ps1` | Immediately reverts `Enable-TempSSHAccess.ps1` (stops `sshd`, restores its original startup type, closes the firewall rule, removes any deployed SSH key, removes the auto-disable task); safe to run even if no session is active; `maintenance/temp-ssh-access/syncro_wrapper_disable_temp_ssh_access.ps1` is the thin wrapper to paste into SyncroMSP |
+| `maintenance/bitdefender-diag/Debug-BitdefenderPortLeak.ps1` | Diagnostic for TCP ephemeral port exhaustion caused by Bitdefender GravityZone (`EPSecurityService`): `-Mode Install` registers a one-time boot task that monitors the connection build-up from boot locally and packs a ZIP for Bitdefender support, `-Mode Upload` attaches the ZIP to the asset; `maintenance/bitdefender-diag/syncro_wrapper_bitdefender_diag.ps1` is the thin wrapper to paste into SyncroMSP |
 
 ---
 
@@ -167,6 +168,25 @@ The Windows-created `OpenSSH-Server-In-TCP` firewall rule is not scoped to a net
   powershell.exe -ExecutionPolicy Bypass -File .\Test-Local.ps1 -Action Disable
   ```
   Run elevated (as Administrator) since the underlying scripts manage services, firewall rules, and scheduled tasks.
+
+---
+
+### `maintenance/bitdefender-diag/Debug-BitdefenderPortLeak.ps1`
+
+Diagnostic for a Bitdefender GravityZone agent (`EPSecurityService`) that fills the dynamic TCP port range within minutes after boot (System log `Tcpip` 4227/4231), after which new outbound connections of other programs fail. Not run directly in Syncro — `syncro_wrapper_bitdefender_diag.ps1` is the thin wrapper to paste into **Scripting → Scripts** (same download-from-GitHub pattern as the other wrappers).
+
+Once the ports are exhausted, the Syncro agent itself can no longer open new connections — a Syncro script started "right after the reboot" may never arrive, and its result can't be reported back. The script therefore works in three modes:
+
+1. **`-Mode Install`** (default, via Syncro): copies itself to `C:\ProgramData\BDDiag\` and registers a one-time Scheduled Task `ITFactory-BDDiag-Collect` (SYSTEM, at startup). `-Reboot 1` also reboots after 60 s; otherwise reboot manually. Exits 0 without changes if `EPSecurityService` isn't installed.
+2. **`-Mode Collect`** (runs locally from the task at boot, no network/Syncro dependency):
+   - Monitoring from boot (`-MonitorMinutes` 15, `-IntervalSeconds` 10): EPSecurityService connections per TCP state, free dynamic ports per IPv4/IPv6 (distinct local ports in the range, parsed from `netsh`, works on localized Windows), handles, non-paged pool. Full TCP snapshot once >90 % of the IPv4 range is in use.
+   - Once a minute a TCP/443 test to the Bitdefender targets (`-Targets`, default `34.120.68.241,34.54.215.149`) and a control target (`-ControlTarget`, default `1.1.1.1`), logged together with the free-port count and whether the network is up. This separates "target blocked in the network" from "local ports exhausted".
+   - `pktmon` capture filtered to the targets (`-Capture 0` disables it, max. 100 MB, converted to `.pcapng`).
+   - Afterwards: TLS certificate of the targets, Bitdefender version/update status via `product.console.exe GetVersion`/`GetUpdateStatus`, services, files sorted by modification date, logs, drivers/WFP, network config/profile, event logs incl. MSI/Windows Update installs of the last `-EventDays` (14).
+   - Writes `C:\ProgramData\BDDiag\<COMPUTERNAME>_<timestamp>.zip` (starts with `00_SUMMARY.txt`), logs to `C:\ProgramData\BDDiag\collect_task.log`, then removes its own task.
+3. **`-Mode Upload`** (via Syncro, once the device is reachable again, e.g. after disabling the agent in GravityZone): attaches the newest ZIP to the asset via `Upload-File`.
+
+TLS caveat: if Bitdefender's own encrypted traffic scan is active, the certificate issuer in `03_tls.csv` may be Bitdefender itself — that is not SSL inspection by the firewall. `Rmm-Alert` (category `Bitdefender Diag`) only fires when Install or Upload fails. No mock module: Collect calls no Syncro functions and can be run by hand (`-Mode Collect -MonitorMinutes 5`, elevated).
 
 ---
 
