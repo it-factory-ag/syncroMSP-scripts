@@ -144,7 +144,6 @@ function SaveCsv([string]$file, $data) {
 function AppendCsv([string]$file, $data) {
     $data | Export-Csv -Path (Join-Path $out $file) -Append -NoTypeInformation -Encoding UTF8 -Delimiter ';'
 }
-function Cnt($hash, [string]$key) { if ($hash -and $hash.ContainsKey($key)) { $hash[$key].Count } else { 0 } }
 
 # netsh-Ausgabe ist lokalisiert ("Start Port"/"Startport") -> nur die ersten zwei Zahlen lesen
 function Get-DynRange([string]$family) {
@@ -155,13 +154,6 @@ function Get-DynRange([string]$family) {
 }
 $rangeV4 = Get-DynRange 'ipv4'
 $rangeV6 = Get-DynRange 'ipv6'
-
-# Belegte Ports im dynamischen Bereich (eindeutige LocalPort-Werte, pro Address Family)
-function Get-UsedDynPorts($conns, $range, [bool]$v6) {
-    $lo = $range.Start; $hi = $range.Start + $range.Count - 1
-    @($conns | Where-Object { ($_.LocalAddress -like '*:*') -eq $v6 -and $_.LocalPort -ge $lo -and $_.LocalPort -le $hi } |
-      Select-Object -ExpandProperty LocalPort -Unique).Count
-}
 
 function Test-Tcp([string]$ip, [int]$port = 443, [int]$timeoutMs = 3000) {
     $tcp = New-Object Net.Sockets.TcpClient
@@ -199,7 +191,7 @@ Step "Monitoring ($MonitorMinutes min, alle $IntervalSeconds s)" {
     if ($Capture -eq 1 -and $targetList.Count -gt 0 -and (Get-Command pktmon.exe -ErrorAction SilentlyContinue)) {
         pktmon filter remove | Out-Null
         $n = 0
-        foreach ($ip in $targetList) { $n++; pktmon filter add "BD$n" -i $ip | Out-Null }
+        foreach ($ip in @($targetList) + @($ControlTarget | Where-Object { $_ })) { $n++; pktmon filter add "T$n" -i $ip | Out-Null }
         pktmon start --capture --comp nics --pkt-size 128 --file-name "$out\10_capture.etl" --file-size 100 | Out-Null
         $pktmonRunning = ($LASTEXITCODE -eq 0)
         Write-Host "  pktmon aktiv: $pktmonRunning"
@@ -212,17 +204,31 @@ Step "Monitoring ($MonitorMinutes min, alle $IntervalSeconds s)" {
         $t0 = Get-Date
         $ts = $t0.ToString('s')
         $bdProc = @(Get-Process -Name $BdProcName -ErrorAction SilentlyContinue)
-        $bdPids = @($bdProc | ForEach-Object Id)
+        $bdPids = @{}; $bdProc | ForEach-Object { $bdPids[[uint32]$_.Id] = $true }
         $s   = @(Get-NetTCPConnection -ErrorAction SilentlyContinue)
-        $bd  = @($s | Where-Object { $bdPids -contains $_.OwningProcess })
-        $all = $s  | Group-Object State -AsHashTable -AsString
-        $bds = $bd | Group-Object State -AsHashTable -AsString
-        $usedV4 = Get-UsedDynPorts $s $rangeV4 $false
-        $usedV6 = Get-UsedDynPorts $s $rangeV6 $true
+        $tGet = [math]::Round(((Get-Date) - $t0).TotalSeconds, 1)
+
+        # Ein Durchlauf: Status-Zaehler, belegte dynamische Ports, BD- und System-Verbindungen (PID 4)
+        $all = @{}; $bds = @{}; $perPid = @{}; $p4 = @{}; $p6 = @{}
+        $bd = New-Object System.Collections.Generic.List[object]
+        $sys = New-Object System.Collections.Generic.List[object]
+        $lo4 = $rangeV4.Start; $hi4 = $rangeV4.Start + $rangeV4.Count - 1
+        $lo6 = $rangeV6.Start; $hi6 = $rangeV6.Start + $rangeV6.Count - 1
+        foreach ($c in $s) {
+            $st = [string]$c.State
+            $all[$st] = 1 + [int]$all[$st]
+            $perPid[$c.OwningProcess] = 1 + [int]$perPid[$c.OwningProcess]
+            $lp = [int]$c.LocalPort
+            if ($c.LocalAddress.Contains(':')) { if ($lp -ge $lo6 -and $lp -le $hi6) { $p6[$lp] = $true } }
+            elseif ($lp -ge $lo4 -and $lp -le $hi4) { $p4[$lp] = $true }
+            if ($bdPids.ContainsKey($c.OwningProcess)) { $bd.Add($c); $bds[$st] = 1 + [int]$bds[$st] }
+            elseif ($c.OwningProcess -eq 4) { $sys.Add($c) }
+        }
+        $usedV4 = $p4.Count; $usedV6 = $p6.Count
         $mem = Get-CimInstance Win32_PerfFormattedData_PerfOS_Memory -ErrorAction SilentlyContinue
-        $top = $s | Group-Object OwningProcess | Sort-Object Count -Descending | Select-Object -First 3 | ForEach-Object {
-            $p = Get-Process -Id ([int]$_.Name) -ErrorAction SilentlyContinue
-            "$(if ($p) { $p.ProcessName } else { $_.Name }):$($_.Count)"
+        $top = $perPid.GetEnumerator() | Sort-Object Value -Descending | Select-Object -First 3 | ForEach-Object {
+            $p = Get-Process -Id ([int]$_.Key) -ErrorAction SilentlyContinue
+            "$(if ($p) { $p.ProcessName } else { $_.Key }):$($_.Value)"
         }
 
         AppendCsv '01_monitor_summary.csv' ([pscustomobject]@{
@@ -231,17 +237,19 @@ Step "Monitoring ($MonitorMinutes min, alle $IntervalSeconds s)" {
             Gesamt          = $s.Count
             DynPortsFreiV4  = $rangeV4.Count - $usedV4
             DynPortsFreiV6  = $rangeV6.Count - $usedV6
-            Sys_TimeWait    = Cnt $all 'TimeWait'
+            Sys_TimeWait    = [int]$all['TimeWait']
+            System_PID4     = $sys.Count
             BD_Gesamt       = $bd.Count
-            BD_Bound        = Cnt $bds 'Bound'
-            BD_SynSent      = Cnt $bds 'SynSent'
-            BD_CloseWait    = Cnt $bds 'CloseWait'
-            BD_Established  = Cnt $bds 'Established'
-            BD_TimeWait     = Cnt $bds 'TimeWait'
+            BD_Bound        = [int]$bds['Bound']
+            BD_SynSent      = [int]$bds['SynSent']
+            BD_CloseWait    = [int]$bds['CloseWait']
+            BD_Established  = [int]$bds['Established']
+            BD_TimeWait     = [int]$bds['TimeWait']
             BD_Handles      = ($bdProc | Measure-Object Handles -Sum).Sum
             BD_WorkingSetMB = [math]::Round((($bdProc | Measure-Object WorkingSet64 -Sum).Sum) / 1MB, 1)
             NonPagedPoolMB  = if ($mem) { [math]::Round($mem.PoolNonpagedBytes / 1MB, 1) } else { '' }
             Top3            = $top -join ', '
+            AbfrageSek      = $tGet
         })
 
         if ($bd.Count) {
@@ -249,12 +257,19 @@ Step "Monitoring ($MonitorMinutes min, alle $IntervalSeconds s)" {
                 Sort-Object Count -Descending | Select-Object -First 15 |
                 Select-Object @{n='Zeit';e={$ts}}, Count, Name)
         }
+        # Verbindungen des System-Prozesses (PID 4) - z.B. Kernel-Treiber/umgeleitete Verbindungen
+        if ($sys.Count -gt 100) {
+            AppendCsv '01_monitor_system_detail.csv' ($sys | Group-Object State, RemoteAddress, RemotePort |
+                Sort-Object Count -Descending | Select-Object -First 15 |
+                Select-Object @{n='Zeit';e={$ts}}, Count, Name)
+        }
 
-        # Voller Snapshot einmal, sobald der v4-Bereich zu >90 % belegt ist
-        if ($firstFull -and $usedV4 -gt 0.9 * $rangeV4.Count) {
+        # Voller Snapshot einmal, sobald der Anstieg beginnt (BD > 2000 oder v4-Bereich > 50 % belegt)
+        if ($firstFull -and ($bd.Count -gt 2000 -or $usedV4 -gt 0.5 * $rangeV4.Count)) {
             $firstFull = $false
-            SaveCsv '02_tcp_full_at_exhaustion.csv' ($s | Select-Object LocalAddress, LocalPort, RemoteAddress, RemotePort, State, OwningProcess, CreationTime)
-            Save '02_netstat_s_at_exhaustion.txt' (netstat -s)
+            SaveCsv '02_tcp_full_at_burst.csv' ($s | Select-Object LocalAddress, LocalPort, RemoteAddress, RemotePort, State, OwningProcess, CreationTime)
+            Save '02_netstat_s_at_burst.txt' (netstat -s)
+            Write-Host "  Anstieg erkannt - Snapshot gespeichert"
         }
 
         # Konnektivitaetstest jede Minute, mit Anzahl freier Ports zum gleichen Zeitpunkt.
@@ -272,7 +287,7 @@ Step "Monitoring ($MonitorMinutes min, alle $IntervalSeconds s)" {
             }
         }
 
-        Write-Host ("  {0}  Gesamt={1}  BD={2}  frei v4={3}" -f $ts, $s.Count, $bd.Count, ($rangeV4.Count - $usedV4))
+        Write-Host ("  {0}  Gesamt={1}  BD={2}  System={3}  frei v4={4}  ({5} s)" -f $ts, $s.Count, $bd.Count, $sys.Count, ($rangeV4.Count - $usedV4), $tGet)
         $wait = $IntervalSeconds - ((Get-Date) - $t0).TotalSeconds
         if ($wait -gt 0) { Start-Sleep -Seconds ([int][math]::Ceiling($wait)) }
     }
@@ -316,9 +331,17 @@ Step 'TLS-Zertifikate der Bitdefender-Ziele' {
 Step 'Bitdefender-Version und Update-Status' {
     $pc = Get-ChildItem "$env:ProgramFiles\Bitdefender" -Recurse -Filter 'product.console.exe' -File -ErrorAction SilentlyContinue |
           Select-Object -First 1
+    # Mit Timeout: product.console.exe blieb als SYSTEM im Task schon unbegrenzt haengen
     $lines = foreach ($c in 'GetVersion product', 'GetVersion antivirus', 'GetUpdateStatus product', 'GetUpdateStatus antivirus') {
         "### $c"
-        if ($pc) { & $pc.FullName ($c -split ' ') 2>&1 } else { 'product.console.exe nicht gefunden' }
+        if (-not $pc) { 'product.console.exe nicht gefunden'; ''; continue }
+        $tmp = Join-Path $out '_pc_out.txt'; $nul = Join-Path $out '_pc_in.txt'
+        Set-Content -Path $nul -Value '' -Encoding ASCII
+        $proc = Start-Process -FilePath $pc.FullName -ArgumentList $c -NoNewWindow -PassThru `
+                    -RedirectStandardOutput $tmp -RedirectStandardInput $nul
+        if (-not $proc.WaitForExit(30000)) { $proc | Stop-Process -Force -ErrorAction SilentlyContinue; 'TIMEOUT nach 30 s' }
+        Get-Content $tmp -ErrorAction SilentlyContinue
+        Remove-Item $tmp, $nul -ErrorAction SilentlyContinue
         ''
     }
     Save '04_bd_version.txt' $lines
