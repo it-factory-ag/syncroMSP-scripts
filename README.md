@@ -4,6 +4,12 @@ PowerShell scripts deployed as SyncroMSP RMM scripts. All scripts use `Import-Mo
 
 ---
 
+## Folder structure
+
+New scripts go into a topic folder: `identity/` (Entra ID, Windows Hello, sign-in), `m365/` (Office, Teams, Outlook), `network/` (VPN, network, connectivity), `reboot/` (reboot dialogs and scheduling), plus the existing `drivers/`, `hardware/`, `health/`, `secure-boot/`. A script with a wrapper or helper files gets its own subfolder inside the topic folder.
+
+`maintenance/` is frozen: no new scripts. Existing scripts stay there because SyncroMSP wrappers download several of them by their `raw.githubusercontent.com` path, so moving them would break those wrappers.
+
 ## Overview
 
 | Script | What it does |
@@ -18,6 +24,7 @@ PowerShell scripts deployed as SyncroMSP RMM scripts. All scripts use `Import-Mo
 | `maintenance/office_licence_cache_cleanup.ps1` | Clears all Office/M365 identity and license caches (run as logged-in user; reboot required after); `maintenance/syncro_wrapper_office_licence_cache_cleanup.ps1` is the thin wrapper to paste into SyncroMSP |
 | `maintenance/teams_cache_cleanup.ps1` | Clears classic + new Teams local cache (run as logged-in user; re-login required after) |
 | `maintenance/vpn_first_logon_profile_fix.ps1` | Sets local policy to fix failed first domain login over VPN: always wait for network at logon + disable GPO slow-link detection, then gpupdate + reboots the device |
+| `identity/set_windows_hello_for_business.ps1` | Disables (or re-enables) Windows Hello for Business via local policy, so Entra-joined devices stop forcing PIN + MFA registration after login; for tenants without Intune (Entra ID Free); optional Syncro variable `Action` (`Disable`/`Enable`) |
 | `maintenance/remove_apps/` | Removes unwanted Win32 and AppX apps based on a per-customer app list |
 | `maintenance/file-access-audit/Setup-FileAccessAudit.ps1` | One-time setup on a file server: sets SACL, grows the Security log, deploys a daily collector + weekly report script, registers scheduled tasks — file-level access statistics, no per-user monitoring; optional weekly upload to a Seafile upload link |
 | `maintenance/printers/Setup-Printer.ps1` | Generic HP Universal Print Driver (PCL6) network printer setup, parameterized by printer name/IP; per-customer `*_wrappers/` folders hold the thin wrapper scripts that call it (e.g. `vsgn_wrappers/syncro_wrapper_vsgn_d11_32.ps1` for VSGN's "D11-32 Container MFP M430f"; `hux_wrappers/` for HUX's "HP E78630z Andelfingen", incl. a second "Briefpapier" (letterhead) queue sharing the same port) |
@@ -47,6 +54,17 @@ Disables HP Sure Start (`SureStart Production Mode`) via HP BCU. Exits 0 with a 
 ### `hardware/get_bios_info.ps1`
 
 Collects system, BIOS, CPU, RAM, disk, and network information and prints it to the script output.
+
+---
+
+### `identity/set_windows_hello_for_business.ps1`
+
+On Entra-joined devices Windows Hello for Business (WHfB) is on by default: after the first login Windows forces the user to set a PIN **and register an MFA method**, even when MFA is off in the tenant, and the dialog can't be skipped. Tenants without Intune (Entra ID Free) have no central policy for this, so it is set per device — see [wiki guide](https://wiki.prod.itfactory.ch/doc/anleitung-gerate-auf-entra-join-umstellen-mShrrN2FDn).
+
+- `Action` = `Disable` (default, also when the variable is not set): sets `HKLM\SOFTWARE\Policies\Microsoft\PassportForWork\Enabled` = 0 (GPO "Use Windows Hello for Business" = Disabled)
+- `Action` = `Enable`: removes the value, Windows default applies again (WHfB on for Entra-joined devices), e.g. when MFA gets rolled out later
+
+Runs as SYSTEM, paste directly into SyncroMSP (no wrapper). To make `Enable` selectable, add a Script Variable `Action` (Dropdown: `Disable`, `Enable`) in Syncro; there is no `param()` block, because Syncro injects variables at the top of the script. Takes effect at the next sign-in; a user already stuck in the setup dialog has to sign out (Ctrl+Alt+Del › Sign out) and back in. Best run right after the Entra join, before the user's first login. Raises an `Rmm-Alert` (category "Windows Hello for Business") only if setting the value fails.
 
 ---
 

@@ -10,6 +10,10 @@ PowerShell scripts deployed as [SyncroMSP](https://syncromsp.com/) RMM scripts. 
 
 Make sure, to update the README.md to keep the list of scripts up-to-date. 
 
+Put new scripts into a topic folder (`identity/`, `m365/`, `network/`, `reboot/`, `drivers/`, `hardware/`, `health/`, `secure-boot/`; create a new topic folder if none fits). Never add new scripts to `maintenance/` and never move existing scripts out of it: SyncroMSP wrappers download several of them by their GitHub raw path.
+
+No `param()` block in scripts pasted directly into SyncroMSP: Syncro injects Script Variables as assignments at the top of the script, which breaks `param()`. Use `if (-not $Var) { $Var = <default> }` instead.
+
 ## Deployment Model
 
 Scripts are uploaded directly into SyncroMSP under **Scripting → Scripts** and run on endpoints. There is no build step or test runner — scripts are validated by reading and reasoning about them.
