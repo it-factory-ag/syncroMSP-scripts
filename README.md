@@ -76,7 +76,7 @@ What it collects:
 
 The output starts with the findings and the snapshot history, followed by the details: Syncro truncates long script output, so the summary must come first. TCP latency is the median of 5 connects after one discarded warm-up connect.
 
-Each run writes `C:\ProgramData\ITFactory\RdsPerfDiag\snapshot_<timestamp>.json` and `report_<timestamp>.txt` (last 60 kept) and prints the last 10 snapshots as a table. Schedule it daily for 1-2 weeks to see whether memory, handles, pool, sessions or printers climb with uptime. Never raises `Rmm-Alert`, always exits 0. No mock module needed: it calls no Syncro functions and can be run by hand (elevated).
+Each run writes `C:\ProgramData\ITFactory\RdsPerfDiag\snapshot_<timestamp>.json` and `report_<COMPUTERNAME>_<timestamp>.txt` (last 60 kept), attaches the report to the Syncro asset via `Upload-File` (Syncro truncates the script output at roughly 10'000 characters) and prints the last 10 snapshots as a table. The first output line shows the upload status, the second the script version (git blob hash of the file, compare with `git hash-object`). Schedule it daily for 1-2 weeks to see whether memory, handles, pool, sessions or printers climb with uptime. Never raises `Rmm-Alert`, always exits 0. No mock module needed: it calls no Syncro functions and can be run by hand (elevated).
 
 ---
 

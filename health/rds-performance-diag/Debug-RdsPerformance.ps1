@@ -21,7 +21,10 @@ C:\ProgramData\ITFactory\RdsPerfDiag\ and prints the history of the last runs.
 Schedule it daily (e.g. Mon-Fri 10:00) for 1-2 weeks: if available memory,
 handles, pool or session/printer counts climb with uptime, that is the
 "slower towards the end of the week" pattern. The full report of each run is
-saved next to the snapshot as report_<timestamp>.txt.
+saved next to the snapshot as report_<COMPUTERNAME>_<timestamp>.txt and attached
+to the Syncro asset via Upload-File (-Upload 0 disables it): Syncro truncates
+script output at roughly 10'000 characters, so the details are only complete
+in that file. The output starts with the findings and history for that reason.
 
 Makes no changes besides writing those files. Never raises Rmm-Alert and always
 exits 0: it's a diagnostic whose output a human reads.
@@ -36,8 +39,22 @@ into Syncro, so it may use a param() block.
 
 param(
     [int]$SampleSeconds = 15,
-    [int]$EventDays = 7
+    [int]$EventDays = 7,
+    [int]$Upload = 1
 )
+
+# Script version = git blob hash of this file (same as `git hash-object <file>`), no git needed.
+# Matches the repo only when the file runs unmodified, i.e. as downloaded by the wrapper.
+# Look it up in the repo with: git log --oneline --find-object=<hash>
+$scriptVersion = "unknown"
+try {
+    $bytes  = [IO.File]::ReadAllBytes($PSCommandPath)
+    $prefix = [Text.Encoding]::ASCII.GetBytes("blob $($bytes.Length)`0")
+    $sha1   = [Security.Cryptography.SHA1]::Create()
+    $sha1.TransformBlock($prefix, 0, $prefix.Length, $null, 0) | Out-Null
+    $sha1.TransformFinalBlock($bytes, 0, $bytes.Length) | Out-Null
+    $scriptVersion = (($sha1.Hash | ForEach-Object { $_.ToString("x2") }) -join "").Substring(0, 7)
+} catch {}
 
 # Import only when launched by Syncro, so a manual run doesn't fail on an empty path.
 if ($env:SyncroModule) { Import-Module $env:SyncroModule -DisableNameChecking }
@@ -45,8 +62,9 @@ if ($env:SyncroModule) { Import-Module $env:SyncroModule -DisableNameChecking }
 $ErrorActionPreference = "Continue"
 if ($SampleSeconds -lt 3) { $SampleSeconds = 3 }
 
-$dataDir   = Join-Path $env:ProgramData "ITFactory\RdsPerfDiag"
-$timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
+$dataDir    = Join-Path $env:ProgramData "ITFactory\RdsPerfDiag"
+$timestamp  = Get-Date -Format "yyyyMMdd_HHmmss"
+$reportPath = Join-Path $dataDir "report_$($env:COMPUTERNAME)_$timestamp.txt"
 $keepRuns  = 60
 New-Item -ItemType Directory -Path $dataDir -Force | Out-Null
 
@@ -137,7 +155,7 @@ public static class ItfWtsHelper {
 
 $header = @(
     "=== RDS Performance Diagnostic ==="
-    "Computer: $env:COMPUTERNAME  |  $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss (dddd)')  |  Sample: ${SampleSeconds}s  |  Events: last $EventDays days"
+    "Version: $scriptVersion  |  Computer: $env:COMPUTERNAME  |  $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss (dddd)')  |  Sample: ${SampleSeconds}s  |  Events: last $EventDays days"
 )
 
 # The detail sections are captured (Write-Host = information stream 6) and printed after
@@ -607,21 +625,34 @@ $summaryOutput = . {
     Write-Section "Snapshot history (last 10 runs, oldest first)"
     if ($snapshotError) { Write-Host "  ERROR saving/reading snapshots: $snapshotError" } else { Write-Table $history }
     Write-Host ""
-    Write-Host "  Full report: $(Join-Path $dataDir "report_$timestamp.txt")"
+    Write-Host "  Full report: $reportPath"
     Write-Host ""
     Write-Host "##################### DETAILS #####################"
 } 6>&1
 
 $report = @($summaryOutput) + @($detailOutput) | ForEach-Object { "$_" }
-$report | ForEach-Object { Write-Host $_ }
 
+# Write and upload before printing, so the upload status is the first line of the
+# (truncated) Syncro output.
+$uploadStatus = "Report upload: disabled (-Upload 0)"
 try {
-    $report | Set-Content -Path (Join-Path $dataDir "report_$timestamp.txt") -Encoding UTF8
+    $report | Set-Content -Path $reportPath -Encoding UTF8
     foreach ($pattern in "snapshot_*.json", "report_*.txt") {
-        Get-ChildItem $dataDir -Filter $pattern | Sort-Object Name -Descending | Select-Object -Skip $keepRuns | Remove-Item -Force -ErrorAction SilentlyContinue
+        Get-ChildItem $dataDir -Filter $pattern | Sort-Object LastWriteTime -Descending | Select-Object -Skip $keepRuns | Remove-Item -Force -ErrorAction SilentlyContinue
+    }
+    if ($Upload -eq 1) {
+        if (Get-Command Upload-File -ErrorAction SilentlyContinue) {
+            Upload-File -FilePath $reportPath
+            $uploadStatus = "Report upload: OK, $(Split-Path $reportPath -Leaf) attached to the asset (Syncro truncates this output)"
+        } else {
+            $uploadStatus = "Report upload: skipped, Upload-File not available (not run by Syncro)"
+        }
     }
 } catch {
-    Write-Host "ERROR writing report file: $($_.Exception.Message)"
+    $uploadStatus = "Report upload: FAILED ($($_.Exception.Message)). Report is on the server: $reportPath"
 }
+
+Write-Host $uploadStatus
+$report | ForEach-Object { Write-Host $_ }
 
 exit 0
