@@ -25,6 +25,7 @@ New scripts go into a topic folder: `identity/` (Entra ID, Windows Hello, sign-i
 | `maintenance/teams_cache_cleanup.ps1` | Clears classic + new Teams local cache (run as logged-in user; re-login required after) |
 | `maintenance/vpn_first_logon_profile_fix.ps1` | Sets local policy to fix failed first domain login over VPN: always wait for network at logon + disable GPO slow-link detection, then gpupdate + reboots the device |
 | `identity/set_windows_hello_for_business.ps1` | Disables (or re-enables) Windows Hello for Business via local policy, so Entra-joined devices stop forcing PIN + MFA registration after login; for tenants without Intune (Entra ID Free); optional Syncro variable `Action` (`Disable`/`Enable`) |
+| `m365/set_outlook_autodiscover_fix.ps1` | Sets (or removes) the Outlook Autodiscover fix for the logged-in user: `ExcludeExplicitO365Endpoint` = 1 and `AlwaysUseMSOAuthForAutoDiscover` = 0 (HKCU); run as logged-in user; optional Syncro variable `Action` (`Apply`/`Remove`) |
 | `maintenance/remove_apps/` | Removes unwanted Win32 and AppX apps based on a per-customer app list |
 | `maintenance/file-access-audit/Setup-FileAccessAudit.ps1` | One-time setup on a file server: sets SACL, grows the Security log, deploys a daily collector + weekly report script, registers scheduled tasks — file-level access statistics, no per-user monitoring; optional weekly upload to a Seafile upload link |
 | `maintenance/printers/Setup-Printer.ps1` | Generic HP Universal Print Driver (PCL6) network printer setup, parameterized by printer name/IP; per-customer `*_wrappers/` folders hold the thin wrapper scripts that call it (e.g. `vsgn_wrappers/syncro_wrapper_vsgn_d11_32.ps1` for VSGN's "D11-32 Container MFP M430f"; `hux_wrappers/` for HUX's "HP E78630z Andelfingen", incl. a second "Briefpapier" (letterhead) queue sharing the same port) |
@@ -54,6 +55,17 @@ Disables HP Sure Start (`SureStart Production Mode`) via HP BCU. Exits 0 with a 
 ### `hardware/get_bios_info.ps1`
 
 Collects system, BIOS, CPU, RAM, disk, and network information and prints it to the script output.
+
+---
+
+### `m365/set_outlook_autodiscover_fix.ps1`
+
+Outlook Autodiscover fix per user (HKCU), replaces the former inline Syncro script "Fix Outlook Autodiscover ExcludeExplicitO365Endpoint & MSOAuth".
+
+- `Action` = `Apply` (default, also when the variable is not set): sets `HKCU\Software\Microsoft\Office\16.0\Outlook\AutoDiscover\ExcludeExplicitO365Endpoint` = 1 (Outlook skips the direct Microsoft 365 endpoint lookup and uses the regular Autodiscover flow) and `HKCU\Software\Microsoft\Exchange\AlwaysUseMSOAuthForAutoDiscover` = 0
+- `Action` = `Remove`: removes both values, Outlook default applies again
+
+Paste directly into SyncroMSP (no wrapper), **Run As: Logged in User** — as SYSTEM it would only change SYSTEM's registry, so the script exits 1 in that case. Add a Script Variable `Action` (Dropdown: `Apply`, `Remove`) in Syncro; no `param()` block, because Syncro injects variables at the top of the script. Takes effect after an Outlook restart. Raises an `Rmm-Alert` (category "Outlook Autodiscover") only if setting/removing a value fails.
 
 ---
 
