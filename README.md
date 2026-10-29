@@ -15,6 +15,7 @@ New scripts go into a topic folder: `identity/` (Entra ID, Windows Hello, sign-i
 | Script | What it does |
 |---|---|
 | `health/device_health.ps1` | Collects health information: BIOS, OS version/build, VM, TPM, Secure Boot, Sure Start, Windows Update, BitLocker, Antivirus |
+| `health/rds-performance-diag/Debug-RdsPerformance.ps1` | Read-only performance diagnostic for terminal servers (RDS): sessions, memory/handle leaks, disk latency, printers, file server latency, event logs; stores a snapshot per run and prints the trend. Paste `syncro_wrapper_rds_performance_diag.ps1` into Syncro |
 | `secure-boot/patch_secure_boot.ps1` | Triggers Windows Secure Boot cert update via registry + scheduled task |
 | `secure-boot/deactivate_sure_start.ps1` | Disables HP Sure Start via BCU (HP-only) |
 | `hardware/get_bios_info.ps1` | Diagnostic: prints detailed system, BIOS, Secure Boot, TPM, and event log info |
@@ -56,6 +57,24 @@ Disables HP Sure Start (`SureStart Production Mode`) via HP BCU. Exits 0 with a 
 ### `hardware/get_bios_info.ps1`
 
 Collects system, BIOS, CPU, RAM, disk, and network information and prints it to the script output.
+
+---
+
+### `health/rds-performance-diag/Debug-RdsPerformance.ps1`
+
+Read-only performance diagnostic for a Remote Desktop Session Host that gets slower over the week (Office, Explorer, PDF reader, ERP sluggish; browser fine). Not run directly in Syncro: `syncro_wrapper_rds_performance_diag.ps1` is the thin wrapper to paste into **Scripting → Scripts** (download-from-GitHub pattern, no `param()` block). Optional Script Variables `SampleSeconds` (default 15) and `EventDays` (default 7). Run as SYSTEM.
+
+What it collects:
+- System: OS, uptime, vCPU/RAM, power plan, Office C2R version, RDS role.
+- CPU %, processor queue, pages/sec and per-drive read/write latency, sampled over `SampleSeconds` (WMI perf classes, so it works on German Windows).
+- Sessions via the WTS API (not `quser`, which is localized): state, idle time, disconnected since, processes/private memory/handles per session.
+- Top processes by CPU, private memory and handles, memory per process name, `explorer.exe` and `spoolsv.exe` size.
+- Printers (redirected `TS*` ports), printer drivers, profiles (temp, `.bak`), FSLogix/UPD.
+- DNS servers per NIC, DNS and TCP connect latency to file servers (users' mapped drives from the loaded hives, SMB connections) and domain controllers.
+- Third-party AV vs. Defender mode, Windows Search, event log counts (2004, 1530, disk 129/153/7/51, app hangs/crashes, service crashes, 6008, PrintService).
+- A WARN/INFO findings list based on heuristic thresholds.
+
+Each run writes `C:\ProgramData\ITFactory\RdsPerfDiag\snapshot_<timestamp>.json` and `report_<timestamp>.txt` (last 60 kept) and prints the last 10 snapshots as a table. Schedule it daily for 1-2 weeks to see whether memory, handles, pool, sessions or printers climb with uptime. Never raises `Rmm-Alert`, always exits 0. No mock module needed: it calls no Syncro functions and can be run by hand (elevated).
 
 ---
 
