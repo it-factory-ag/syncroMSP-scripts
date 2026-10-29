@@ -49,7 +49,6 @@ $dataDir   = Join-Path $env:ProgramData "ITFactory\RdsPerfDiag"
 $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
 $keepRuns  = 60
 New-Item -ItemType Directory -Path $dataDir -Force | Out-Null
-try { Start-Transcript -Path (Join-Path $dataDir "report_$timestamp.txt") -Force | Out-Null } catch {}
 
 $findings = New-Object System.Collections.Generic.List[object]
 function Add-Finding([string]$Severity, [string]$Text) {
@@ -65,6 +64,12 @@ function Write-Table($Data) {
 }
 function Test-PrivateIp([string]$Ip) {
     return $Ip -match '^(10\.|127\.|169\.254\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[01])\.)'
+}
+function Get-Median($Values) {
+    $sorted = @($Values | Sort-Object)
+    if ($sorted.Count -eq 0) { return $null }
+    if ($sorted.Count % 2) { return $sorted[[int][math]::Floor($sorted.Count / 2)] }
+    return [math]::Round(($sorted[$sorted.Count / 2 - 1] + $sorted[$sorted.Count / 2]) / 2, 1)
 }
 function Measure-TcpConnect([string]$Address, [int]$Port, [int]$TimeoutMs = 2000) {
     $client = New-Object System.Net.Sockets.TcpClient
@@ -130,8 +135,15 @@ public static class ItfWtsHelper {
 '@
 }
 
-Write-Host "=== RDS Performance Diagnostic ==="
-Write-Host "Computer: $env:COMPUTERNAME  |  $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss (dddd)')  |  Sample: ${SampleSeconds}s  |  Events: last $EventDays days"
+$header = @(
+    "=== RDS Performance Diagnostic ==="
+    "Computer: $env:COMPUTERNAME  |  $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss (dddd)')  |  Sample: ${SampleSeconds}s  |  Events: last $EventDays days"
+)
+
+# The detail sections are captured (Write-Host = information stream 6) and printed after
+# the findings and history: Syncro truncates long script output, so the summary goes first.
+# Dot-sourced so variables set inside stay available for the summary.
+$detailOutput = . {
 
 # --- [1/11] System ---
 Write-Section "[1/11] System"
@@ -140,9 +152,14 @@ $cs    = Get-CimInstance Win32_ComputerSystem
 $cores = [int]$cs.NumberOfLogicalProcessors
 $totalRamMB = [math]::Round($os.TotalVisibleMemorySize / 1KB)
 $uptime = (Get-Date) - $os.LastBootUpTime
+$cpuName = (@(Get-CimInstance Win32_Processor)[0].Name -replace '\s+', ' ').Trim()
 Write-Host "  OS:          $($os.Caption) (Build $($os.BuildNumber))"
 Write-Host "  Hardware:    $($cs.Manufacturer) $($cs.Model)"
-Write-Host "  CPU:         $cores logical processors, $($cs.NumberOfProcessors) socket(s)"
+Write-Host "  CPU:         $cpuName - $cores logical processors, $($cs.NumberOfProcessors) socket(s)"
+# Proxmox/KVM generic CPU models (kvm64, qemu64, x86-64-vX) hide host CPU features from the guest.
+if ($cpuName -match 'QEMU|Common KVM|kvm64|qemu64') {
+    Add-Finding "WARN" "VM CPU model is generic ('$cpuName'). In Proxmox set CPU type 'host' (or the matching host model) so Windows gets all CPU features."
+}
 Write-Host "  RAM:         $totalRamMB MB"
 Write-Host "  Last boot:   $($os.LastBootUpTime.ToString('yyyy-MM-dd HH:mm (dddd)'))  |  uptime $([math]::Round($uptime.TotalDays, 1)) days"
 
@@ -388,6 +405,12 @@ $profiles = @(Get-CimInstance Win32_UserProfile -Filter "Special=False" -ErrorAc
 $tempProfiles = @($profiles | Where-Object { $_.LocalPath -match '\\TEMP' })
 $bakProfiles = @(Get-ChildItem "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList" -ErrorAction SilentlyContinue | Where-Object { $_.PSChildName -like "*.bak" })
 Write-Host "  Local profiles: $($profiles.Count)  |  loaded: $(@($profiles | Where-Object Loaded).Count)  |  temp: $($tempProfiles.Count)  |  .bak in ProfileList: $($bakProfiles.Count)"
+foreach ($bak in $bakProfiles) {
+    $sid = $bak.PSChildName -replace '\.bak$', ''
+    $account = try { (New-Object System.Security.Principal.SecurityIdentifier($sid)).Translate([System.Security.Principal.NTAccount]).Value } catch { "unresolved" }
+    Write-Host "    .bak: $account ($sid) -> $((Get-ItemProperty $bak.PSPath -ErrorAction SilentlyContinue).ProfileImagePath)"
+}
+foreach ($t in $tempProfiles) { Write-Host "    temp: $($t.LocalPath) ($($t.SID))" }
 $fslogix = Get-Service -Name frxsvc -ErrorAction SilentlyContinue
 Write-Host "  FSLogix: $(if ($fslogix) { "installed, service $($fslogix.Status)" } else { 'not installed' })"
 $upd = Get-ItemProperty "HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server\ClusterSettings" -ErrorAction SilentlyContinue
@@ -446,16 +469,22 @@ foreach ($t in $targets) {
         $dnsMs = [math]::Round($sw.Elapsed.TotalMilliseconds, 1)
     } catch {}
     $tcp = @()
-    if ($ip) { for ($i = 0; $i -lt 3; $i++) { $tcp += Measure-TcpConnect $ip.IPAddressToString $t.Port } }
+    if ($ip) {
+        # First connect is discarded: it includes .NET/socket warm-up, not network latency.
+        Measure-TcpConnect $ip.IPAddressToString $t.Port | Out-Null
+        for ($i = 0; $i -lt 5; $i++) { $tcp += Measure-TcpConnect $ip.IPAddressToString $t.Port }
+    }
     $ok = @($tcp | Where-Object { $null -ne $_ })
-    $avg = if ($ok.Count) { [math]::Round(($ok | Measure-Object -Average).Average, 1) } else { $null }
+    $median = Get-Median $ok
     $latencyRows += [pscustomobject]@{
         Host = $t.Host; Role = $t.Role; IP = if ($ip) { $ip.IPAddressToString } else { "unresolved" }
-        DnsMs = $dnsMs; Port = $t.Port; TcpAvgMs = $avg; TcpOk = "$($ok.Count)/3"
+        DnsMs = $dnsMs; Port = $t.Port; TcpMedianMs = $median
+        TcpMinMaxMs = if ($ok.Count) { "$(($ok | Measure-Object -Minimum).Minimum)/$(($ok | Measure-Object -Maximum).Maximum)" } else { "" }
+        TcpOk = "$($ok.Count)/5"
     }
     if (-not $ip) { Add-Finding "WARN" "$($t.Role) '$($t.Host)' does not resolve. Dead mapped drive / stale DNS: Explorer and Office dialogs wait for timeouts." }
-    elseif ($ok.Count -lt 3) { Add-Finding "WARN" "$($t.Role) '$($t.Host)' port $($t.Port) not reachable in $(3 - $ok.Count)/3 attempts. Explorer and Office dialogs hang on unreachable paths." }
-    elseif ($avg -gt 5) { Add-Finding "WARN" "$($t.Role) '$($t.Host)' TCP connect avg $avg ms (LAN should be <1-2 ms)." }
+    elseif ($ok.Count -lt 5) { Add-Finding "WARN" "$($t.Role) '$($t.Host)' port $($t.Port) not reachable in $(5 - $ok.Count)/5 attempts. Explorer and Office dialogs hang on unreachable paths." }
+    elseif ($median -gt 5) { Add-Finding "WARN" "$($t.Role) '$($t.Host)' TCP connect median $median ms (LAN should be <1-2 ms)." }
     if ($dnsMs -gt 200) { Add-Finding "WARN" "DNS lookup of '$($t.Host)' took $dnsMs ms." }
 }
 Write-Table $latencyRows
@@ -504,6 +533,20 @@ Write-Table @(
     [pscustomobject]@{ Event = "Unexpected shutdowns (6008)";                    Count = $evShutdown.Count }
     [pscustomobject]@{ Event = "PrintService errors";                            Count = $evPrint.Count }
 )
+if ($evDisk.Count) {
+    Write-Host ""
+    Write-Host "  Disk/storage events (newest 10):"
+    Write-Table ($evDisk | Select-Object -First 10 | ForEach-Object {
+        $msg = (("$($_.Message)" -split "`r?`n")[0] -replace '\s+', ' ').Trim()
+        if ($msg.Length -gt 120) { $msg = $msg.Substring(0, 120) }
+        [pscustomobject]@{
+            Time     = $_.TimeCreated.ToString("ddd dd.MM HH:mm")
+            Provider = $_.ProviderName
+            Id       = $_.Id
+            Message  = $msg
+        }
+    })
+}
 if ($evHang.Count) {
     Write-Host ""
     Write-Host "  Hangs per application:"
@@ -522,15 +565,11 @@ if ($evService.Count) {
 if ($evResource.Count) { Add-Finding "WARN" "$($evResource.Count) resource exhaustion events (2004): the server ran out of commit memory. The event text names the top consumers." }
 if ($evProfile.Count)  { Add-Finding "WARN" "$($evProfile.Count) events 1530 (profile hive still in use at logoff): registry leaks that grow paged pool over days; the event names the process holding the handles." }
 if ($evDisk.Count)     { Add-Finding "WARN" "$($evDisk.Count) disk/storage timeout events: check storage/host." }
-if ($evHang.Count -gt 20) { Add-Finding "WARN" "$($evHang.Count) application hangs in $EventDays days, see table above." }
+if ($evHang.Count -gt 20) { Add-Finding "WARN" "$($evHang.Count) application hangs in $EventDays days, see event log section." }
 
-# --- Findings ---
-Write-Section "Findings (heuristic, verify before acting)"
-if ($findings.Count -eq 0) { Write-Host "  No threshold exceeded in this run. Compare the snapshot history across the week." }
-else { Write-Table ($findings | Sort-Object { if ($_.Severity -eq "WARN") { 0 } else { 1 } }) }
+} 6>&1
 
-# --- Snapshot + history ---
-Write-Section "Snapshot history (last 10 runs, oldest first)"
+# --- Snapshot ---
 $snapshot = [pscustomobject]@{
     Time            = (Get-Date).ToString("yyyy-MM-dd HH:mm")
     UptimeDays      = [math]::Round($uptime.TotalDays, 1)
@@ -550,18 +589,39 @@ $snapshot = [pscustomobject]@{
     CReadMs         = if ($cDisk) { $cDisk.ReadMs } else { $null }
     CWriteMs        = if ($cDisk) { $cDisk.WriteMs } else { $null }
 }
+$history = @()
+$snapshotError = $null
 try {
     $snapshot | ConvertTo-Json | Set-Content -Path (Join-Path $dataDir "snapshot_$timestamp.json") -Encoding UTF8
     $history = @(Get-ChildItem $dataDir -Filter "snapshot_*.json" | Sort-Object Name | Select-Object -Last 10 | ForEach-Object { Get-Content $_.FullName -Raw | ConvertFrom-Json })
-    Write-Table $history
+} catch {
+    $snapshotError = $_.Exception.Message
+}
+
+# --- Output: summary first, then details ---
+$summaryOutput = . {
+    $header | ForEach-Object { Write-Host $_ }
+    Write-Section "Findings (heuristic, verify before acting)"
+    if ($findings.Count -eq 0) { Write-Host "  No threshold exceeded in this run. Compare the snapshot history across the week." }
+    else { Write-Table ($findings | Sort-Object { if ($_.Severity -eq "WARN") { 0 } else { 1 } }) }
+    Write-Section "Snapshot history (last 10 runs, oldest first)"
+    if ($snapshotError) { Write-Host "  ERROR saving/reading snapshots: $snapshotError" } else { Write-Table $history }
+    Write-Host ""
+    Write-Host "  Full report: $(Join-Path $dataDir "report_$timestamp.txt")"
+    Write-Host ""
+    Write-Host "##################### DETAILS #####################"
+} 6>&1
+
+$report = @($summaryOutput) + @($detailOutput) | ForEach-Object { "$_" }
+$report | ForEach-Object { Write-Host $_ }
+
+try {
+    $report | Set-Content -Path (Join-Path $dataDir "report_$timestamp.txt") -Encoding UTF8
     foreach ($pattern in "snapshot_*.json", "report_*.txt") {
         Get-ChildItem $dataDir -Filter $pattern | Sort-Object Name -Descending | Select-Object -Skip $keepRuns | Remove-Item -Force -ErrorAction SilentlyContinue
     }
-    Write-Host ""
-    Write-Host "  Data folder: $dataDir"
 } catch {
-    Write-Host "  ERROR saving/reading snapshots: $($_.Exception.Message)"
+    Write-Host "ERROR writing report file: $($_.Exception.Message)"
 }
 
-try { Stop-Transcript | Out-Null } catch {}
 exit 0

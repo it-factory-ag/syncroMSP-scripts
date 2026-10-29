@@ -72,7 +72,9 @@ What it collects:
 - Printers (redirected `TS*` ports), printer drivers, profiles (temp, `.bak`), FSLogix/UPD.
 - DNS servers per NIC, DNS and TCP connect latency to file servers (users' mapped drives from the loaded hives, SMB connections) and domain controllers.
 - Third-party AV vs. Defender mode, Windows Search, event log counts (2004, 1530, disk 129/153/7/51, app hangs/crashes, service crashes, 6008, PrintService).
-- A WARN/INFO findings list based on heuristic thresholds.
+- A WARN/INFO findings list based on heuristic thresholds (incl. generic Proxmox/KVM CPU model, handle leaks, disconnected sessions).
+
+The output starts with the findings and the snapshot history, followed by the details: Syncro truncates long script output, so the summary must come first. TCP latency is the median of 5 connects after one discarded warm-up connect.
 
 Each run writes `C:\ProgramData\ITFactory\RdsPerfDiag\snapshot_<timestamp>.json` and `report_<timestamp>.txt` (last 60 kept) and prints the last 10 snapshots as a table. Schedule it daily for 1-2 weeks to see whether memory, handles, pool, sessions or printers climb with uptime. Never raises `Rmm-Alert`, always exits 0. No mock module needed: it calls no Syncro functions and can be run by hand (elevated).
 
