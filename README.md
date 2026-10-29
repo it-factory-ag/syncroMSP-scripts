@@ -69,6 +69,7 @@ What it collects:
 - CPU %, processor queue, pages/sec and per-drive read/write latency, sampled over `SampleSeconds` (WMI perf classes, so it works on German Windows).
 - Sessions via the WTS API (not `quser`, which is localized): state, idle time, disconnected since, processes/private memory/handles per session.
 - Top processes by CPU, private memory and handles, memory per process name, `explorer.exe` and `spoolsv.exe` size.
+- Session-side suspects: non-Microsoft DLLs loaded in `explorer.exe` (shell extensions, overlay/preview handlers), icon overlay handlers, Office COM add-ins (Outlook/Word/Excel) machine-wide and per user with `LoadBehavior`.
 - Printers (redirected `TS*` ports), printer drivers, profiles (temp, `.bak`), FSLogix/UPD.
 - DNS servers per NIC, DNS and TCP connect latency to file servers (users' mapped drives from the loaded hives, SMB connections) and domain controllers.
 - Third-party AV vs. Defender mode, Windows Search, event log counts (2004, 1530, disk 129/153/7/51, app hangs/crashes, service crashes, 6008, PrintService).

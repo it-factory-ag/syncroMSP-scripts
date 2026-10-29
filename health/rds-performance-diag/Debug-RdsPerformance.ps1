@@ -164,8 +164,8 @@ $header = @(
 # Dot-sourced so variables set inside stay available for the summary.
 $detailOutput = . {
 
-# --- [1/11] System ---
-Write-Section "[1/11] System"
+# --- [1/12] System ---
+Write-Section "[1/12] System"
 $os    = Get-CimInstance Win32_OperatingSystem
 $cs    = Get-CimInstance Win32_ComputerSystem
 $cores = [int]$cs.NumberOfLogicalProcessors
@@ -222,8 +222,8 @@ if ($uptime.TotalDays -gt 6) {
     Add-Finding "INFO" "Uptime is $([math]::Round($uptime.TotalDays, 1)) days. Compare the snapshot history below: if memory/handles/pool degrade with uptime, a leak is likely (weekly reboot = workaround, not fix)."
 }
 
-# --- [2/11] CPU, memory, disk sampling ---
-Write-Section "[2/11] Sampling CPU / memory / disk for ${SampleSeconds}s"
+# --- [2/12] CPU, memory, disk sampling ---
+Write-Section "[2/12] Sampling CPU / memory / disk for ${SampleSeconds}s"
 $procs0 = Get-Process
 $cpu0 = @{}
 foreach ($p in $procs0) { if ($p.TotalProcessorTime) { $cpu0[$p.Id] = $p.TotalProcessorTime.TotalSeconds } }
@@ -256,8 +256,8 @@ Write-Host "  Pages/sec:        avg $pagesAvg (includes file cache reads, only m
 if ($cpuAvg -gt 80) { Add-Finding "WARN" "CPU average $cpuAvg % during sampling." }
 if ($queueAvg -gt 2 * $cores) { Add-Finding "WARN" "Processor queue avg $queueAvg > 2 x $cores cores: CPU-bound or too few vCPUs." }
 
-# --- [3/11] Memory ---
-Write-Section "[3/11] Memory"
+# --- [3/12] Memory ---
+Write-Section "[3/12] Memory"
 $mem = Get-CimInstance Win32_PerfFormattedData_PerfOS_Memory
 $availMB     = [int]$mem.AvailableMBytes
 $commitPct   = [int]$mem.PercentCommittedBytesInUse
@@ -275,8 +275,8 @@ if ($commitPct -gt 85) { Add-Finding "WARN" "Commit charge at $commitPct %. Clos
 if ($nonPagedMB -gt 1024) { Add-Finding "WARN" "Non-paged pool $nonPagedMB MB (heuristic >1 GB): typical for a driver leak (AV, filter driver, NIC). Compare history." }
 if ($pagedMB -gt 4096) { Add-Finding "WARN" "Paged pool $pagedMB MB (heuristic >4 GB): often registry/profile hive or handle leak. Compare history." }
 
-# --- [4/11] Disks ---
-Write-Section "[4/11] Disks (latency measured over the sampling window)"
+# --- [4/12] Disks ---
+Write-Section "[4/12] Disks (latency measured over the sampling window)"
 $diskRows = @()
 $logical = @{}
 foreach ($ld in Get-CimInstance Win32_LogicalDisk -Filter "DriveType=3") { $logical[$ld.DeviceID] = $ld }
@@ -307,8 +307,8 @@ foreach ($d1 in $disk1) {
 Write-Table $diskRows
 $cDisk = $diskRows | Where-Object { $_.Drive -eq "C:" } | Select-Object -First 1
 
-# --- [5/11] Sessions ---
-Write-Section "[5/11] RDS sessions"
+# --- [5/12] Sessions ---
+Write-Section "[5/12] RDS sessions"
 $stateNames = @{ 0 = "Active"; 1 = "Connected"; 2 = "ConnectQuery"; 3 = "Shadow"; 4 = "Disconnected"; 5 = "Idle"; 6 = "Listen"; 7 = "Reset"; 8 = "Down"; 9 = "Init" }
 $byProcSession = $procs1 | Group-Object SessionId -AsHashTable -AsString
 $sessionUser = @{}
@@ -348,8 +348,8 @@ if ($staleDisc.Count -gt 0) {
     Add-Finding "WARN" "$($staleDisc.Count) session(s) disconnected for >8 h ($(($staleDisc.User) -join ', ')). They keep processes, memory and file locks. Set an RDS limit 'End a disconnected session' (GPO: Session Time Limits)."
 }
 
-# --- [6/11] Processes ---
-Write-Section "[6/11] Processes (CPU over sampling window, memory, handles)"
+# --- [6/12] Processes ---
+Write-Section "[6/12] Processes (CPU over sampling window, memory, handles)"
 $procRows = foreach ($p in $procs1) {
     $cpuPct = $null
     if ($cpu0.ContainsKey($p.Id) -and $p.TotalProcessorTime) {
@@ -406,8 +406,92 @@ if ($explorer.Count -gt 0) {
     if ($exMaxH -gt 10000) { Add-Finding "WARN" "An explorer.exe holds $exMaxH handles (normal: a few thousand). Shell extension or network path leak; check which session." }
 }
 
-# --- [7/11] Printing ---
-Write-Section "[7/11] Printing"
+# --- [7/12] Explorer extensions / Office add-ins ---
+Write-Section "[7/12] Explorer extensions and Office add-ins (session-side suspects)"
+# Third-party DLLs actually loaded into explorer.exe (shell extensions, overlay handlers,
+# preview handlers). Reading modules of a 64-bit explorer needs a 64-bit PowerShell.
+if ([Environment]::Is64BitProcess) {
+    $moduleUse = @{}
+    foreach ($ex in Get-Process -Name explorer -ErrorAction SilentlyContinue) {
+        try {
+            foreach ($m in $ex.Modules) {
+                $company = "$($m.FileVersionInfo.CompanyName)".Trim()
+                if ($company -match 'Microsoft') { continue }
+                $key = $m.FileName.ToLower()
+                if (-not $moduleUse.ContainsKey($key)) {
+                    $moduleUse[$key] = [pscustomobject]@{
+                        Module   = $m.ModuleName
+                        Company  = $company
+                        Version  = $m.FileVersionInfo.FileVersion
+                        Sessions = 0
+                        Path     = $m.FileName
+                    }
+                }
+                $moduleUse[$key].Sessions++
+            }
+        } catch {
+            Write-Host "  Could not read modules of explorer PID $($ex.Id): $($_.Exception.Message)"
+        }
+    }
+    Write-Host "  Non-Microsoft DLLs loaded in explorer.exe ($($moduleUse.Count)), Sessions = number of explorer instances:"
+    Write-Table ($moduleUse.Values | Sort-Object Company, Module)
+} else {
+    Write-Host "  Skipped explorer module scan: PowerShell runs as 32-bit process."
+}
+
+# Icon overlay handlers: Windows only uses the first 15 (sorted by name), extras are ignored
+# but still registered; each one is called for every file icon Explorer draws.
+$overlayKey = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\ShellIconOverlayIdentifiers"
+$overlays = @(Get-ChildItem $overlayKey -ErrorAction SilentlyContinue | Select-Object -ExpandProperty PSChildName)
+Write-Host ""
+Write-Host "  Icon overlay handlers: $($overlays.Count) (Windows uses the first 15): $(($overlays | ForEach-Object { $_.Trim() }) -join ', ')"
+
+# Office COM add-ins: machine-wide (64-bit, WOW6432Node for 32-bit Office, Click-to-Run
+# virtual registry) and per user from the loaded hives.
+# LoadBehavior: 3 = load at startup, 2 = off, 9 = load on demand, 16 = first run only;
+# a user value overrides the machine value.
+$addinRows = @()
+$c2rRoot = "HKLM:\SOFTWARE\Microsoft\Office\ClickToRun\REGISTRY\MACHINE\Software"
+foreach ($app in "Outlook", "Word", "Excel") {
+    $machineRoots = @(
+        "HKLM:\SOFTWARE\Microsoft\Office\$app\Addins",
+        "HKLM:\SOFTWARE\WOW6432Node\Microsoft\Office\$app\Addins",
+        "$c2rRoot\Microsoft\Office\$app\Addins",
+        "$c2rRoot\Wow6432Node\Microsoft\Office\$app\Addins"
+    )
+    foreach ($root in $machineRoots) {
+        foreach ($a in Get-ChildItem $root -ErrorAction SilentlyContinue) {
+            $props = Get-ItemProperty $a.PSPath -ErrorAction SilentlyContinue
+            $addinRows += [pscustomobject]@{ App = $app; ProgId = $a.PSChildName; Name = $props.FriendlyName; Scope = "Machine"; LoadBehavior = $props.LoadBehavior }
+        }
+    }
+    foreach ($hive in Get-ChildItem Registry::HKEY_USERS -ErrorAction SilentlyContinue | Where-Object { $_.PSChildName -match '^S-1-5-21-[\d-]+$' }) {
+        $user = try { (New-Object System.Security.Principal.SecurityIdentifier($hive.PSChildName)).Translate([System.Security.Principal.NTAccount]).Value -replace '^.*\\', '' } catch { $hive.PSChildName }
+        foreach ($a in Get-ChildItem "Registry::$($hive.Name)\Software\Microsoft\Office\$app\Addins" -ErrorAction SilentlyContinue) {
+            $props = Get-ItemProperty $a.PSPath -ErrorAction SilentlyContinue
+            $addinRows += [pscustomobject]@{ App = $app; ProgId = $a.PSChildName; Name = $props.FriendlyName; Scope = $user; LoadBehavior = $props.LoadBehavior }
+        }
+    }
+}
+Write-Host ""
+Write-Host "  Office COM add-ins (LoadBehavior 3 = loads at startup, 2 = off; user overrides machine):"
+Write-Table ($addinRows | Group-Object App, ProgId | ForEach-Object {
+    $g = $_.Group
+    $machine = $g | Where-Object { $_.Scope -eq "Machine" } | Select-Object -First 1
+    $users = @($g | Where-Object { $_.Scope -ne "Machine" })
+    [pscustomobject]@{
+        App          = $g[0].App
+        ProgId       = $g[0].ProgId
+        Name         = ($g | Where-Object Name | Select-Object -First 1).Name
+        Machine      = if ($machine) { $machine.LoadBehavior } else { "" }
+        UsersOn      = @($users | Where-Object { $_.LoadBehavior -eq 3 }).Count
+        UsersOff     = @($users | Where-Object { $_.LoadBehavior -ne 3 }).Count
+        UserValues   = ($users | ForEach-Object { "$($_.Scope)=$($_.LoadBehavior)" }) -join ' '
+    }
+} | Sort-Object App, ProgId)
+
+# --- [8/12] Printing ---
+Write-Section "[8/12] Printing"
 $printers = @(Get-CimInstance Win32_Printer -ErrorAction SilentlyContinue)
 # RDP-redirected printers use TSxxx ports.
 $redirected = @($printers | Where-Object { $_.PortName -like "TS*" })
@@ -425,8 +509,8 @@ if ($spooler -and ($spooler.Handles -gt 10000 -or $spooler.PrivateMB -gt 1024)) 
 }
 if ($drivers.Count -gt 40) { Add-Finding "INFO" "$($drivers.Count) printer drivers installed. Many vendor (non-universal) drivers on RDS are a known source of spooler problems." }
 
-# --- [8/11] Profiles ---
-Write-Section "[8/11] User profiles"
+# --- [9/12] Profiles ---
+Write-Section "[9/12] User profiles"
 $profiles = @(Get-CimInstance Win32_UserProfile -Filter "Special=False" -ErrorAction SilentlyContinue)
 $tempProfiles = @($profiles | Where-Object { $_.LocalPath -match '\\TEMP' })
 $bakProfiles = @(Get-ChildItem "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList" -ErrorAction SilentlyContinue | Where-Object { $_.PSChildName -like "*.bak" })
@@ -445,8 +529,8 @@ if ($tempProfiles.Count -gt 0 -or $bakProfiles.Count -gt 0) {
     Add-Finding "WARN" "Temp profiles ($($tempProfiles.Count)) or .bak ProfileList entries ($($bakProfiles.Count)) found: broken profiles."
 }
 
-# --- [9/11] Network / file servers ---
-Write-Section "[9/11] Network, file servers, domain controllers"
+# --- [10/12] Network / file servers ---
+Write-Section "[10/12] Network, file servers, domain controllers"
 foreach ($nic in Get-NetAdapter -ErrorAction SilentlyContinue | Where-Object Status -eq "Up") {
     Write-Host "  NIC: $($nic.Name) - $($nic.InterfaceDescription) - $($nic.LinkSpeed)"
 }
@@ -515,8 +599,8 @@ foreach ($t in $targets) {
 }
 Write-Table $latencyRows
 
-# --- [10/11] AV / search ---
-Write-Section "[10/11] Antivirus, Windows Search"
+# --- [11/12] AV / search ---
+Write-Section "[11/12] Antivirus, Windows Search"
 $avServices = @(Get-Service -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName -match 'Bitdefender|Sophos|ESET|Kaspersky|Trend Micro|SentinelOne|CrowdStrike|Symantec|McAfee|Trellix|G DATA|Avast|AVG|Panda|WithSecure|F-Secure' } | Where-Object Status -eq "Running")
 if ($avServices.Count) { Write-Host "  Third-party AV services running: $(($avServices.DisplayName | Sort-Object -Unique) -join ', ')" }
 else { Write-Host "  Third-party AV services: none detected" }
@@ -533,8 +617,8 @@ if (-not $search -or $search.Status -ne "Running") {
     Add-Finding "INFO" "Windows Search is not running: Outlook and Explorer search fall back to slow non-indexed search."
 }
 
-# --- [11/11] Event logs ---
-Write-Section "[11/11] Event logs (last $EventDays days)"
+# --- [12/12] Event logs ---
+Write-Section "[12/12] Event logs (last $EventDays days)"
 $since = (Get-Date).AddDays(-$EventDays)
 function Get-Events([hashtable]$Filter) {
     $Filter["StartTime"] = $since
