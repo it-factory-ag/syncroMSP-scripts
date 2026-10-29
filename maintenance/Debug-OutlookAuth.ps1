@@ -15,6 +15,21 @@ Run as: logged-in user (not SYSTEM) - needs the user's HKCU hive and
 LOCALAPPDATA to see the right identity/token cache.
 #>
 
+# Script version = git blob hash of this file (same as `git hash-object <file>`), no git needed.
+# Matches the repo only when the file runs unmodified, i.e. as downloaded by the wrapper.
+# Look it up in the repo with: git log --oneline --find-object=<hash>
+$scriptVersion = & {
+    try {
+        $bytes  = [IO.File]::ReadAllBytes($PSCommandPath)
+        $prefix = [Text.Encoding]::ASCII.GetBytes("blob $($bytes.Length)`0")
+        $sha1   = [Security.Cryptography.SHA1]::Create()
+        $sha1.TransformBlock($prefix, 0, $prefix.Length, $null, 0) | Out-Null
+        $sha1.TransformFinalBlock($bytes, 0, $bytes.Length) | Out-Null
+        (($sha1.Hash | ForEach-Object { $_.ToString("x2") }) -join "").Substring(0, 7)
+    } catch { "unknown" }
+}
+Write-Host "Version: $scriptVersion"
+
 Import-Module $env:SyncroModule
 
 Write-Host "=== Outlook Auth Debug ==="
