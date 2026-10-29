@@ -25,6 +25,7 @@ New scripts go into a topic folder: `identity/` (Entra ID, Windows Hello, sign-i
 | `maintenance/teams_cache_cleanup.ps1` | Clears classic + new Teams local cache (run as logged-in user; re-login required after) |
 | `maintenance/vpn_first_logon_profile_fix.ps1` | Sets local policy to fix failed first domain login over VPN: always wait for network at logon + disable GPO slow-link detection, then gpupdate + reboots the device |
 | `identity/set_windows_hello_for_business.ps1` | Disables (or re-enables) Windows Hello for Business via local policy, so Entra-joined devices stop forcing PIN + MFA registration after login; for tenants without Intune (Entra ID Free); optional Syncro variable `Action` (`Disable`/`Enable`) |
+| `identity/set_local_admin.ps1` | Adds (or removes) an Entra user to the local Administrators group of one Entra-joined device (`AzureAD\<UPN>`); for tenants without Intune; Syncro variables `UserPrincipalName` (required) and `Action` (`Add`/`Remove`) |
 | `m365/set_outlook_autodiscover_fix.ps1` | Sets (or removes) the Outlook Autodiscover fix for the logged-in user: `ExcludeExplicitO365Endpoint` = 1 and `AlwaysUseMSOAuthForAutoDiscover` = 0 (HKCU); run as logged-in user; optional Syncro variable `Action` (`Apply`/`Remove`) |
 | `maintenance/remove_apps/` | Removes unwanted Win32 and AppX apps based on a per-customer app list |
 | `maintenance/file-access-audit/Setup-FileAccessAudit.ps1` | One-time setup on a file server: sets SACL, grows the Security log, deploys a daily collector + weekly report script, registers scheduled tasks — file-level access statistics, no per-user monitoring; optional weekly upload to a Seafile upload link |
@@ -77,6 +78,18 @@ On Entra-joined devices Windows Hello for Business (WHfB) is on by default: afte
 - `Action` = `Enable`: removes the value, Windows default applies again (WHfB on for Entra-joined devices), e.g. when MFA gets rolled out later
 
 Runs as SYSTEM, paste directly into SyncroMSP (no wrapper). To make `Enable` selectable, add a Script Variable `Action` (Dropdown: `Disable`, `Enable`) in Syncro; there is no `param()` block, because Syncro injects variables at the top of the script. Takes effect at the next sign-in; a user already stuck in the setup dialog has to sign out (Ctrl+Alt+Del › Sign out) and back in. Best run right after the Entra join, before the user's first login. Raises an `Rmm-Alert` (category "Windows Hello for Business") only if setting the value fails.
+
+---
+
+### `identity/set_local_admin.ps1`
+
+Makes an Entra user local admin on **this one** Entra-joined device. Without Intune (Entra ID Free) the only central option is the tenant-wide role "Microsoft Entra Joined Device Local Administrator", which applies to all devices — fine for the IFA admin, too broad for a single user. See [wiki guide](https://wiki.prod.itfactory.ch/doc/anleitung-gerate-auf-entra-join-umstellen-mShrrN2FDn).
+
+- `UserPrincipalName` (required, Syncro variable type `runtime`, entered when running the script): e.g. `firstname.lastname@customer.ch`
+- `Action` = `Add` (default): `net localgroup <Administrators> AzureAD\<UPN> /add`
+- `Action` = `Remove`: same with `/delete`
+
+Runs as SYSTEM, paste directly into SyncroMSP (no wrapper), no `param()` block. Exits 1 if the device is not Entra-joined (`dsregcmd /status`). The group name is resolved from the well-known SID `S-1-5-32-544`, so it works on German (`Administratoren`) and English Windows. Uses `net localgroup` instead of `Add-LocalGroupMember`, because the LocalAccounts cmdlets fail on groups containing unresolvable Entra accounts. Idempotent: "already a member" (1378) and "not a member" (1377) count as success. Error 1332 (account not resolvable) usually means a typo in the UPN; if the UPN is right, let the user sign in once and rerun. Takes effect at the user's next sign-in. Raises an `Rmm-Alert` (category "Local Admin") only on failure.
 
 ---
 
