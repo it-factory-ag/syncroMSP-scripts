@@ -211,6 +211,13 @@ if ($c2r) {
     Write-Host "  Office C2R:  not found (MSI Office or no Office)"
 }
 
+# Syncro agent version (its runner showed a handle leak on HBL-SRV02). Win32_Process instead of
+# Get-Process.Path: reading modules of a process with other bitness can fail.
+foreach ($sp in Get-CimInstance Win32_Process -Filter "Name LIKE 'Syncro%'" -ErrorAction SilentlyContinue | Sort-Object Name -Unique) {
+    $ver = try { (Get-Item $sp.ExecutablePath -ErrorAction Stop).VersionInfo.FileVersion } catch { "unknown" }
+    Write-Host "  Syncro:      $($sp.Name) $ver"
+}
+
 if ($uptime.TotalDays -gt 6) {
     Add-Finding "INFO" "Uptime is $([math]::Round($uptime.TotalDays, 1)) days. Compare the snapshot history below: if memory/handles/pool degrade with uptime, a leak is likely (weekly reboot = workaround, not fix)."
 }
