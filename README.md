@@ -67,17 +67,17 @@ Read-only performance diagnostic for a Remote Desktop Session Host that gets slo
 What it collects:
 - System: OS, uptime, vCPU/RAM, power plan, Office C2R version, RDS role.
 - CPU %, processor queue, pages/sec and per-drive read/write latency, sampled over `SampleSeconds` (WMI perf classes, so it works on German Windows).
-- Sessions via the WTS API (not `quser`, which is localized): state, idle time, disconnected since, processes/private memory/handles per session.
-- Top processes by CPU, private memory and handles, memory per process name, `explorer.exe` and `spoolsv.exe` size.
+- Sessions via the WTS API (not `quser`, which is localized): state, idle time, disconnected since, processes/private memory/handles/GDI/USER objects per session.
+- Top processes by CPU, private memory, handles and GDI + USER objects (`GetGuiResources`; quota 10'000 per process, 65'536 per session: a session that is slow until the user logs off and on again often runs out of these, which handle counts don't show), memory per process name, `explorer.exe` and `spoolsv.exe` size.
 - Session-side suspects: non-Microsoft DLLs loaded in `explorer.exe` (shell extensions, overlay/preview handlers), icon overlay handlers, Office COM add-ins (Outlook/Word/Excel) machine-wide and per user with `LoadBehavior`.
 - Printers (redirected `TS*` ports), printer drivers, profiles (temp, `.bak`), FSLogix/UPD.
 - DNS servers per NIC, DNS and TCP connect latency to file servers (users' mapped drives from the loaded hives, SMB connections) and domain controllers.
-- Third-party AV vs. Defender mode, Windows Search, event log counts (2004, 1530, disk 129/153/7/51, app hangs/crashes, service crashes, 6008, PrintService).
+- Third-party AV vs. Defender mode, Windows Search, event log counts (2004, 1530, disk 129/153/7/51 from storage drivers only, app hangs/crashes, service crashes, 6008, PrintService).
 - A WARN/INFO findings list based on heuristic thresholds (incl. generic Proxmox/KVM CPU model, handle leaks, disconnected sessions).
 
 The output starts with the findings and the snapshot history, followed by the details: Syncro truncates long script output, so the summary must come first. TCP latency is the median of 5 connects after one discarded warm-up connect.
 
-Each run writes `C:\ProgramData\ITFactory\RdsPerfDiag\snapshot_<timestamp>.json` and `report_<COMPUTERNAME>_<timestamp>.txt` (last 60 kept), attaches the report to the Syncro asset via `Upload-File` (Syncro truncates the script output at roughly 10'000 characters) and prints the last 10 snapshots as a table. The first output line shows the upload status, the second the script version (git blob hash of the file, compare with `git hash-object`). Schedule it daily for 1-2 weeks to see whether memory, handles, pool, sessions or printers climb with uptime. Never raises `Rmm-Alert`, always exits 0. No mock module needed: it calls no Syncro functions and can be run by hand (elevated).
+Each run writes `C:\ProgramData\ITFactory\RdsPerfDiag\snapshot_<timestamp>.json` and `report_<COMPUTERNAME>_<timestamp>.txt` (last 60 kept), attaches the report to the Syncro asset via `Upload-File` (Syncro truncates the script output at roughly 10'000 characters) and prints the last 10 snapshots as a table (incl. total GDI/USER objects and the handles of `SyncroLive.Agent.Runner`, which leaks on agent 1.0.76) plus a per-session trend of the last 6 runs (handles / GDI / USER per user, `*` marks a new logon). The first output line shows the upload status, the second the script version (git blob hash of the file, compare with `git hash-object`). Schedule it daily for 1-2 weeks to see whether memory, handles, pool, sessions or printers climb with uptime. Never raises `Rmm-Alert`, always exits 0. No mock module needed: it calls no Syncro functions and can be run by hand (elevated).
 
 ---
 

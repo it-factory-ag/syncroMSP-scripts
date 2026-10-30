@@ -7,8 +7,10 @@ Collects in one run:
   - System: OS, uptime, CPU/RAM, VM, power plan, Office C2R version
   - CPU, memory, pagefile and disk latency sampled over -SampleSeconds
   - RDS sessions (active/disconnected, idle, disconnected since) with per-session
-    process count, private memory and handles
-  - Top processes by CPU, private memory and handles (leak candidates)
+    process count, private memory, handles and GDI/USER objects
+  - Top processes by CPU, private memory, handles and GDI/USER objects (leak
+    candidates; GDI/USER exhaustion makes one session sluggish while a fresh
+    logon is fast again)
   - Printing: total/redirected printers, drivers, spooler size
   - User profiles: temp/.bak profiles, FSLogix
   - Network: DNS servers, latency to file servers (from users' mapped drives
@@ -149,6 +151,33 @@ public static class ItfWtsHelper {
         }
         finally { WTSFreeMemory(pInfo); }
         return result;
+    }
+}
+'@
+}
+
+# GDI and USER objects per process. Each has a per-process quota (default 10'000) and a
+# per-session limit (65'536); running out makes windows, menus and redraws fail or crawl
+# in that session only. Not visible in handle counts.
+if (-not ('ItfGuiHelper' -as [type])) {
+    Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+public static class ItfGuiHelper {
+    [DllImport("kernel32.dll")]
+    static extern IntPtr OpenProcess(int access, bool inherit, int pid);
+    [DllImport("kernel32.dll")]
+    static extern bool CloseHandle(IntPtr handle);
+    [DllImport("user32.dll")]
+    static extern int GetGuiResources(IntPtr hProcess, int flags);
+
+    // Returns { GDI, USER }, or { -1, -1 } if the process can't be opened.
+    public static int[] Get(int pid) {
+        // 0x1000 = PROCESS_QUERY_LIMITED_INFORMATION
+        IntPtr h = OpenProcess(0x1000, false, pid);
+        if (h == IntPtr.Zero) return new int[] { -1, -1 };
+        try { return new int[] { GetGuiResources(h, 0), GetGuiResources(h, 1) }; }
+        finally { CloseHandle(h); }
     }
 }
 '@
@@ -311,6 +340,13 @@ $cDisk = $diskRows | Where-Object { $_.Drive -eq "C:" } | Select-Object -First 1
 Write-Section "[5/12] RDS sessions"
 $stateNames = @{ 0 = "Active"; 1 = "Connected"; 2 = "ConnectQuery"; 3 = "Shadow"; 4 = "Disconnected"; 5 = "Idle"; 6 = "Listen"; 7 = "Reset"; 8 = "Down"; 9 = "Init" }
 $byProcSession = $procs1 | Group-Object SessionId -AsHashTable -AsString
+$gui = @{}
+foreach ($p in $procs1) { $gui[$p.Id] = [ItfGuiHelper]::Get($p.Id) }
+function Get-GuiSum($Procs, [int]$Index) {
+    $sum = 0
+    foreach ($p in $Procs) { $v = $gui[$p.Id][$Index]; if ($v -gt 0) { $sum += $v } }
+    return $sum
+}
 $sessionUser = @{}
 $sessionRows = @()
 try {
@@ -334,6 +370,8 @@ try {
             Procs        = if ($sp) { $sp.Count } else { 0 }
             PrivateMB    = if ($sp) { [math]::Round(($sp | Measure-Object PrivateMemorySize64 -Sum).Sum / 1MB) } else { 0 }
             Handles      = if ($sp) { ($sp | Measure-Object HandleCount -Sum).Sum } else { 0 }
+            Gdi          = Get-GuiSum $sp 0
+            UserObj      = Get-GuiSum $sp 1
         }
     }
 } catch {
@@ -344,6 +382,9 @@ $discSessions   = @($sessionRows | Where-Object { $_.State -eq "Disconnected" })
 Write-Host "  Sessions with user: $($sessionRows.Count)  |  active: $activeSessions  |  disconnected: $($discSessions.Count)"
 Write-Table ($sessionRows | Sort-Object PrivateMB -Descending)
 $staleDisc = @($discSessions | Where-Object { $_.DiscHours -gt 8 })
+foreach ($s in $sessionRows | Where-Object { $_.Gdi -gt 40000 -or $_.UserObj -gt 40000 }) {
+    Add-Finding "WARN" "Session $($s.Id) ($($s.User)) uses $($s.Gdi) GDI / $($s.UserObj) USER objects (session limit 65'536 each): the session gets sluggish before it fails. Find the process in the GDI/USER top list."
+}
 if ($staleDisc.Count -gt 0) {
     Add-Finding "WARN" "$($staleDisc.Count) session(s) disconnected for >8 h ($(($staleDisc.User) -join ', ')). They keep processes, memory and file locks. Set an RDS limit 'End a disconnected session' (GPO: Session Time Limits)."
 }
@@ -366,12 +407,17 @@ $procRows = foreach ($p in $procs1) {
         PrivateMB = [math]::Round($p.PrivateMemorySize64 / 1MB)
         Handles   = $p.HandleCount
         Threads   = $p.Threads.Count
+        Gdi       = if ($gui[$p.Id][0] -ge 0) { $gui[$p.Id][0] } else { $null }
+        UserObj   = if ($gui[$p.Id][1] -ge 0) { $gui[$p.Id][1] } else { $null }
         AgeHours  = $ageH
     }
 }
 $totalHandles = ($procRows | Measure-Object Handles -Sum).Sum
 $totalThreads = ($procRows | Measure-Object Threads -Sum).Sum
-Write-Host "  Processes: $($procRows.Count)  |  handles: $totalHandles  |  threads: $totalThreads"
+$totalGdi     = ($procRows | Measure-Object Gdi -Sum).Sum
+$totalUserObj = ($procRows | Measure-Object UserObj -Sum).Sum
+$syncroLiveH  = ($procRows | Where-Object { $_.Name -eq "SyncroLive.Agent.Runner" } | Measure-Object Handles -Maximum).Maximum
+Write-Host "  Processes: $($procRows.Count)  |  handles: $totalHandles  |  threads: $totalThreads  |  GDI: $totalGdi  |  USER: $totalUserObj"
 Write-Host ""
 Write-Host "  Top 10 by CPU (% of all cores):"
 Write-Table ($procRows | Where-Object { $_.PID -ne 0 } | Sort-Object CpuPct -Descending | Select-Object -First 10)
@@ -381,6 +427,9 @@ Write-Table ($procRows | Sort-Object PrivateMB -Descending | Select-Object -Firs
 Write-Host ""
 Write-Host "  Top 10 by handles:"
 Write-Table ($procRows | Sort-Object Handles -Descending | Select-Object -First 10)
+Write-Host ""
+Write-Host "  Top 10 by GDI + USER objects (per-process quota 10'000 each):"
+Write-Table ($procRows | Sort-Object { $_.Gdi + $_.UserObj } -Descending | Select-Object -First 10)
 
 Write-Host ""
 Write-Host "  Memory per process name (all sessions, top 15):"
@@ -396,6 +445,9 @@ Write-Table ($procRows | Group-Object Name | ForEach-Object {
 
 foreach ($p in $procRows | Where-Object { $_.Handles -gt 20000 -and $_.PID -ne 4 }) {
     Add-Finding "WARN" "$($p.Name) (PID $($p.PID), session $($p.Session), age $($p.AgeHours) h) holds $($p.Handles) handles: leak candidate."
+}
+foreach ($p in $procRows | Where-Object { $_.Gdi -ge 8000 -or $_.UserObj -ge 8000 }) {
+    Add-Finding "WARN" "$($p.Name) (PID $($p.PID), $($p.User), age $($p.AgeHours) h) uses $($p.Gdi) GDI / $($p.UserObj) USER objects, near the per-process quota of 10'000: it will stop drawing windows/menus. Restart that app."
 }
 $explorer = @($procRows | Where-Object { $_.Name -eq "explorer" })
 if ($explorer.Count -gt 0) {
@@ -689,6 +741,9 @@ $snapshot = [pscustomobject]@{
     PagedMB         = $pagedMB
     NonPagedMB      = $nonPagedMB
     Handles         = $totalHandles
+    GdiTotal        = $totalGdi
+    UserObjTotal    = $totalUserObj
+    SyncroLiveH     = $syncroLiveH
     Procs           = $procRows.Count
     SessAct         = $activeSessions
     SessDisc        = $discSessions.Count
@@ -698,14 +753,37 @@ $snapshot = [pscustomobject]@{
     ExplMaxHandles  = if ($explorer.Count) { ($explorer | Measure-Object Handles -Maximum).Maximum } else { $null }
     CReadMs         = if ($cDisk) { $cDisk.ReadMs } else { $null }
     CWriteMs        = if ($cDisk) { $cDisk.WriteMs } else { $null }
+    Sessions        = @($sessionRows | ForEach-Object {
+        [pscustomobject]@{ User = $_.User; Logon = $_.LogonTime; Handles = $_.Handles; Gdi = $_.Gdi; UserObj = $_.UserObj; PrivateMB = $_.PrivateMB }
+    })
 }
 $history = @()
 $snapshotError = $null
 try {
-    $snapshot | ConvertTo-Json | Set-Content -Path (Join-Path $dataDir "snapshot_$timestamp.json") -Encoding UTF8
+    $snapshot | ConvertTo-Json -Depth 4 | Set-Content -Path (Join-Path $dataDir "snapshot_$timestamp.json") -Encoding UTF8
     $history = @(Get-ChildItem $dataDir -Filter "snapshot_*.json" | Sort-Object Name | Select-Object -Last 10 | ForEach-Object { Get-Content $_.FullName -Raw | ConvertFrom-Json })
 } catch {
     $snapshotError = $_.Exception.Message
+}
+
+# One row per current session user, one column per run (last 6 runs with session data).
+# A session that gets slow while its numbers climb points to the app to restart.
+function Get-SessionTrend($History) {
+    $runs = @($History | Where-Object { $_.PSObject.Properties['Sessions'] } | Select-Object -Last 6)
+    if ($runs.Count -eq 0) { return $null }
+    foreach ($s in $runs[-1].Sessions | Sort-Object Handles -Descending) {
+        $row = [ordered]@{ User = $s.User }
+        $prevLogon = $null
+        foreach ($r in $runs) {
+            $x = @($r.Sessions | Where-Object { $_.User -eq $s.User })[0]
+            $col = $r.Time.Substring(5)
+            if (-not $x) { $row[$col] = "-"; $prevLogon = $null; continue }
+            $mark = if ($prevLogon -and $x.Logon -ne $prevLogon) { "*" } else { "" }
+            $row[$col] = "$mark$([math]::Round($x.Handles / 1000, 1))/$($x.Gdi)/$($x.UserObj)"
+            $prevLogon = $x.Logon
+        }
+        [pscustomobject]$row
+    }
 }
 
 # --- Output: summary first, then details ---
@@ -715,7 +793,12 @@ $summaryOutput = . {
     if ($findings.Count -eq 0) { Write-Host "  No threshold exceeded in this run. Compare the snapshot history across the week." }
     else { Write-Table ($findings | Sort-Object { if ($_.Severity -eq "WARN") { 0 } else { 1 } }) }
     Write-Section "Snapshot history (last 10 runs, oldest first)"
-    if ($snapshotError) { Write-Host "  ERROR saving/reading snapshots: $snapshotError" } else { Write-Table $history }
+    if ($snapshotError) { Write-Host "  ERROR saving/reading snapshots: $snapshotError" }
+    else {
+        Write-Table ($history | Select-Object Time, UptimeDays, CpuAvg, AvailMB, CommitPct, PagedMB, NonPagedMB, Handles, GdiTotal, UserObjTotal, SyncroLiveH, SessAct, SessDisc)
+        Write-Section "Per-session trend (handles in k / GDI / USER, * = new logon since previous run)"
+        Write-Table (Get-SessionTrend $history)
+    }
     Write-Host ""
     Write-Host "  Full report: $reportPath"
     Write-Host ""
