@@ -16,6 +16,7 @@ New scripts go into a topic folder: `identity/` (Entra ID, Windows Hello, sign-i
 |---|---|
 | `health/device_health.ps1` | Collects health information: BIOS, OS version/build, VM, TPM, Secure Boot, Sure Start, Windows Update, BitLocker, Antivirus |
 | `health/rds-performance-diag/Debug-RdsPerformance.ps1` | Read-only performance diagnostic for terminal servers (RDS): sessions, memory/handle leaks, disk latency, printers, file server latency, event logs; stores a snapshot per run and prints the trend. Paste `syncro_wrapper_rds_performance_diag.ps1` into Syncro |
+| `health/syncro-agent-restart/Restart-SyncroLiveAgent.ps1` | Restarts `SyncroLive.Agent.Runner` once its handle count passes a threshold (handle leak in SyncroLive 1.0.76), via a decoupled one-time scheduled task; alerts only on failure. Paste `syncro_wrapper_syncro_live_restart.ps1` into Syncro |
 | `secure-boot/patch_secure_boot.ps1` | Triggers Windows Secure Boot cert update via registry + scheduled task |
 | `secure-boot/deactivate_sure_start.ps1` | Disables HP Sure Start via BCU (HP-only) |
 | `hardware/get_bios_info.ps1` | Diagnostic: prints detailed system, BIOS, Secure Boot, TPM, and event log info |
@@ -78,6 +79,18 @@ What it collects:
 The output starts with the findings and the snapshot history, followed by the details: Syncro truncates long script output, so the summary must come first. TCP latency is the median of 5 connects after one discarded warm-up connect.
 
 Each run writes `C:\ProgramData\ITFactory\RdsPerfDiag\snapshot_<timestamp>.json` and `report_<COMPUTERNAME>_<timestamp>.txt` (last 60 kept), attaches the report to the Syncro asset via `Upload-File` (Syncro truncates the script output at roughly 10'000 characters) and prints the last 10 snapshots as a table (incl. total GDI/USER objects and the handles of `SyncroLive.Agent.Runner`, which leaks on agent 1.0.76) plus a per-session trend of the last 6 runs (handles / GDI / USER per user, `*` marks a new logon). The first output line shows the upload status, the second the script version (git blob hash of the file, compare with `git hash-object`). Schedule it daily for 1-2 weeks to see whether memory, handles, pool, sessions or printers climb with uptime. Never raises `Rmm-Alert`, always exits 0. No mock module needed: it calls no Syncro functions and can be run by hand (elevated).
+
+---
+
+### `health/syncro-agent-restart/Restart-SyncroLiveAgent.ps1`
+
+Workaround for a handle leak in `SyncroLive.Agent.Runner` 1.0.76.16392 (about 1'600 handles per hour on HBL-SRV02, 150'000 after 3.5 days; updating the main Syncro agent does not update SyncroLive). Not run directly in Syncro: `syncro_wrapper_syncro_live_restart.ps1` is the thin wrapper to paste into **Scripting → Scripts**. Optional Script Variables `HandleThreshold` (default 50000) and `Force` (1 = restart regardless of the count, for testing). Run as SYSTEM, schedule daily (e.g. 03:00).
+
+- Below the threshold it only logs the handle count and exits 0.
+- Above it, it registers the one-time scheduled task `ITFactory-SyncroLiveRestart` (SYSTEM, starts after 1 minute) and exits, so the Syncro run always reports back. The task kills the process and waits up to 3 minutes for a new one; if none comes, it restarts the service whose binary is `SyncroLive.Service.Runner.exe` (looked up by path) and waits again. Then it writes `result.json` and unregisters itself.
+- The next run reads `result.json` and raises `Rmm-Alert` (category "SyncroLive Restart", exit 1) if the restart failed. It also alerts if the task could not be registered or is still registered after 30 minutes.
+
+Files under `C:\ProgramData\ITFactory\SyncroLiveRestart\`: `restart.log` (one line per run plus the task's lines, last 500 kept), `task.ps1`, `result.json` (deleted once reported). Local test: `Test-Local.ps1 -Force 1` with `Mock-SyncroModule.psm1` (only `Rmm-Alert` is mocked, the restart is real). Remove the script from the schedule once Syncro ships a fixed SyncroLive version.
 
 ---
 
