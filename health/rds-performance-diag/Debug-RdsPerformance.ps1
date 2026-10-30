@@ -626,7 +626,7 @@ function Get-Events([hashtable]$Filter) {
 }
 $evResource = Get-Events @{ LogName = "System"; ProviderName = "Microsoft-Windows-Resource-Exhaustion-Detector"; Id = 2004 }
 $evProfile  = Get-Events @{ LogName = "Application"; ProviderName = "Microsoft-Windows-User Profiles Service"; Id = 1530 }
-$evDisk     = @(Get-Events @{ LogName = "System"; Id = 129, 153, 7, 51 } | Where-Object { $_.ProviderName -notmatch 'Time-Service' -and ($_.Id -in 129, 153 -or $_.ProviderName -eq 'disk') })
+$evDisk     = @(Get-Events @{ LogName = "System"; Id = 129, 153, 7, 51 } | Where-Object { $_.ProviderName -match '^disk$|stor|scsi|nvme|ahci|iaStor|mpio|LSI' })   # 153 is also Kernel-Boot (VBS state), 7/51 also other providers
 $evHang     = Get-Events @{ LogName = "Application"; ProviderName = "Application Hang"; Id = 1002 }
 $evCrash    = Get-Events @{ LogName = "Application"; ProviderName = "Application Error"; Id = 1000 }
 $evService  = Get-Events @{ LogName = "System"; ProviderName = "Service Control Manager"; Id = 7031, 7034 }
