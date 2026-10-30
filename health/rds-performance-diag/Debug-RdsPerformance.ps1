@@ -81,7 +81,9 @@ function Write-Section([string]$Title) {
 }
 function Write-Table($Data) {
     if (-not $Data) { Write-Host "  (none)"; return }
-    ($Data | Format-Table -AutoSize | Out-String -Width 220).TrimEnd() | Write-Host
+    # Name the properties: without them Format-Table drops every column after the 10th.
+    $props = @(@($Data)[0].PSObject.Properties.Name)
+    ($Data | Format-Table -Property $props -AutoSize | Out-String -Width 250).TrimEnd() | Write-Host
 }
 function Test-PrivateIp([string]$Ip) {
     return $Ip -match '^(10\.|127\.|169\.254\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[01])\.)'
@@ -159,8 +161,10 @@ public static class ItfWtsHelper {
 # GDI and USER objects per process. Each has a per-process quota (default 10'000) and a
 # per-session limit (65'536); running out makes windows, menus and redraws fail or crawl
 # in that session only. Not visible in handle counts.
-if (-not ('ItfGuiHelper' -as [type])) {
-    Add-Type -TypeDefinition @'
+# GetGuiResources only sees processes of the caller's own session (win32k is per session):
+# from session 0 every user process reports 0. So the same helper also runs as a short-lived
+# SYSTEM probe inside each user session (ItfSessionLauncher, like psexec -s -i <session>).
+$guiHelperSource = @'
 using System;
 using System.Runtime.InteropServices;
 public static class ItfGuiHelper {
@@ -178,6 +182,72 @@ public static class ItfGuiHelper {
         if (h == IntPtr.Zero) return new int[] { -1, -1 };
         try { return new int[] { GetGuiResources(h, 0), GetGuiResources(h, 1) }; }
         finally { CloseHandle(h); }
+    }
+}
+'@
+if (-not ('ItfGuiHelper' -as [type])) { Add-Type -TypeDefinition $guiHelperSource }
+
+if (-not ('ItfSessionLauncher' -as [type])) {
+    Add-Type -TypeDefinition @'
+using System;
+using System.ComponentModel;
+using System.Runtime.InteropServices;
+using System.Text;
+public static class ItfSessionLauncher {
+    [DllImport("advapi32.dll", SetLastError = true)]
+    static extern bool OpenProcessToken(IntPtr process, uint access, out IntPtr token);
+    [DllImport("advapi32.dll", SetLastError = true)]
+    static extern bool DuplicateTokenEx(IntPtr token, uint access, IntPtr attributes, int impersonationLevel, int tokenType, out IntPtr newToken);
+    [DllImport("advapi32.dll", SetLastError = true)]
+    static extern bool SetTokenInformation(IntPtr token, int infoClass, ref int info, int length);
+    [DllImport("advapi32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+    static extern bool CreateProcessAsUserW(IntPtr token, string app, StringBuilder cmdLine, IntPtr pa, IntPtr ta, bool inherit, uint flags, IntPtr env, string dir, ref STARTUPINFO si, out PROCESS_INFORMATION pi);
+    [DllImport("kernel32.dll")]
+    static extern IntPtr GetCurrentProcess();
+    [DllImport("kernel32.dll")]
+    static extern uint WaitForSingleObject(IntPtr handle, uint ms);
+    [DllImport("kernel32.dll")]
+    static extern bool CloseHandle(IntPtr handle);
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    struct STARTUPINFO {
+        public int cb; public string lpReserved; public string lpDesktop; public string lpTitle;
+        public int dwX, dwY, dwXSize, dwYSize, dwXCountChars, dwYCountChars, dwFillAttribute, dwFlags;
+        public short wShowWindow, cbReserved2; public IntPtr lpReserved2, hStdInput, hStdOutput, hStdError;
+    }
+    [StructLayout(LayoutKind.Sequential)]
+    struct PROCESS_INFORMATION { public IntPtr hProcess, hThread; public int dwProcessId, dwThreadId; }
+
+    // Starts cmdLine with this process' (SYSTEM) token moved into sessionId, hidden.
+    // Needs SeTcbPrivilege (SYSTEM has it). Returns the process handle for Wait().
+    public static IntPtr Start(int sessionId, string cmdLine) {
+        IntPtr token, dup;
+        // 0x000F01FF = TOKEN_ALL_ACCESS
+        if (!OpenProcessToken(GetCurrentProcess(), 0x000F01FF, out token)) throw new Win32Exception();
+        try {
+            // 0x02000000 = MAXIMUM_ALLOWED, 2 = SecurityImpersonation, 1 = TokenPrimary
+            if (!DuplicateTokenEx(token, 0x02000000, IntPtr.Zero, 2, 1, out dup)) throw new Win32Exception();
+        }
+        finally { CloseHandle(token); }
+        try {
+            // 12 = TokenSessionId
+            if (!SetTokenInformation(dup, 12, ref sessionId, 4)) throw new Win32Exception();
+            var si = new STARTUPINFO();
+            si.cb = Marshal.SizeOf(si);
+            si.lpDesktop = "winsta0\\default";
+            PROCESS_INFORMATION pi;
+            // 0x08000000 = CREATE_NO_WINDOW
+            if (!CreateProcessAsUserW(dup, null, new StringBuilder(cmdLine), IntPtr.Zero, IntPtr.Zero, false, 0x08000000, IntPtr.Zero, null, ref si, out pi)) throw new Win32Exception();
+            CloseHandle(pi.hThread);
+            return pi.hProcess;
+        }
+        finally { CloseHandle(dup); }
+    }
+
+    // True if the process ended within ms. Closes the handle either way.
+    public static bool Wait(IntPtr process, int ms) {
+        try { return WaitForSingleObject(process, (uint)Math.Max(ms, 0)) == 0; }
+        finally { CloseHandle(process); }
     }
 }
 '@
@@ -340,11 +410,47 @@ $cDisk = $diskRows | Where-Object { $_.Drive -eq "C:" } | Select-Object -First 1
 Write-Section "[5/12] RDS sessions"
 $stateNames = @{ 0 = "Active"; 1 = "Connected"; 2 = "ConnectQuery"; 3 = "Shadow"; 4 = "Disconnected"; 5 = "Idle"; 6 = "Listen"; 7 = "Reset"; 8 = "Down"; 9 = "Init" }
 $byProcSession = $procs1 | Group-Object SessionId -AsHashTable -AsString
+# GDI/USER: session 0 directly, every other session through a probe started inside it.
 $gui = @{}
-foreach ($p in $procs1) { $gui[$p.Id] = [ItfGuiHelper]::Get($p.Id) }
+foreach ($p in $procs1) { $gui[$p.Id] = if ($p.SessionId -eq 0) { [ItfGuiHelper]::Get($p.Id) } else { @(-1, -1) } }
+$guiErrors = @()
+$probeScript = Join-Path $dataDir "gui_probe.ps1"
+$probeCode = @'
+param([string]$Out)
+Add-Type -TypeDefinition @"
+__SOURCE__
+"@
+$own = (Get-Process -Id $PID).SessionId
+$lines = foreach ($p in Get-Process | Where-Object { $_.SessionId -eq $own }) { $r = [ItfGuiHelper]::Get($p.Id); "$($p.Id),$($r[0]),$($r[1])" }
+Set-Content -Path $Out -Value $lines -Encoding ASCII
+'@
+Set-Content -Path $probeScript -Value $probeCode.Replace("__SOURCE__", $guiHelperSource) -Encoding UTF8
+$psExe = Join-Path $env:SystemRoot "System32\WindowsPowerShell\v1.0\powershell.exe"
+$probes = @()
+foreach ($sid in @($procs1 | Where-Object { $_.SessionId -gt 0 } | ForEach-Object { $_.SessionId } | Sort-Object -Unique)) {
+    $out = Join-Path $dataDir "gui_probe_$sid.csv"
+    Remove-Item $out -Force -ErrorAction SilentlyContinue
+    try {
+        $h = [ItfSessionLauncher]::Start($sid, "`"$psExe`" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File `"$probeScript`" -Out `"$out`"")
+        $probes += [pscustomobject]@{ Session = $sid; Handle = $h; Out = $out }
+    } catch { $guiErrors += "session ${sid}: $($_.Exception.Message)" }
+}
+$probeDeadline = (Get-Date).AddSeconds(60)
+foreach ($pr in $probes) {
+    if (-not [ItfSessionLauncher]::Wait($pr.Handle, [int](($probeDeadline - (Get-Date)).TotalMilliseconds))) { $guiErrors += "session $($pr.Session): probe timed out" }
+    if (Test-Path $pr.Out) {
+        foreach ($line in Get-Content $pr.Out) {
+            $f = $line -split ','
+            if ($f.Count -eq 3 -and $gui.ContainsKey([int]$f[0])) { $gui[[int]$f[0]] = @([int]$f[1], [int]$f[2]) }
+        }
+        Remove-Item $pr.Out -Force -ErrorAction SilentlyContinue
+    } elseif (-not ($guiErrors -match "^session $($pr.Session):")) { $guiErrors += "session $($pr.Session): probe wrote no result" }
+}
+if ($guiErrors) { Write-Host "  GDI/USER objects incomplete: $($guiErrors -join '; ')" }
+# $null instead of 0 when no process of the set could be measured.
 function Get-GuiSum($Procs, [int]$Index) {
-    $sum = 0
-    foreach ($p in $Procs) { $v = $gui[$p.Id][$Index]; if ($v -gt 0) { $sum += $v } }
+    $sum = $null
+    foreach ($p in $Procs) { $v = $gui[$p.Id][$Index]; if ($v -ge 0) { $sum += $v } }
     return $sum
 }
 $sessionUser = @{}
