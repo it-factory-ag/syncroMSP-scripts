@@ -26,6 +26,16 @@ names are parsed out of the .inf's model section (skipping the [Manufacturer]
 section, which has the same "name = target, arch" shape but isn't a model
 entry) since the exact name varies per driver package and isn't worth
 hardcoding.
+
+Only installs while the printer answers on TCP 9100: the HP UPD reads the
+device configuration at install time, and a queue installed while the printer
+is unreachable ends up monochrome-only. If it doesn't answer, the script
+installs nothing, copies itself to C:\ProgramData\ITFactory\PrinterSetup\ and
+registers the scheduled task "ITFactory-PrinterSetup-<queue>" (SYSTEM, every
+15 minutes). The task re-runs this script with -Deferred 1: still unreachable
+-> exits silently; reachable -> installs and unregisters itself. After 3
+failed installs on a reachable printer it gives up (see <queue>.log in that
+folder). The Syncro run exits 0 in that case, the queue is just pending.
 #>
 
 param(
@@ -44,7 +54,10 @@ param(
     [string]$ExtractDir = "C:\temp\hp_upd_pcl6",
 
     [ValidateSet("Color", "Monochrome")]
-    [string]$ColorMode = "Color"
+    [string]$ColorMode = "Color",
+
+    # Set by the scheduled task only: stay silent while the printer is unreachable.
+    [int]$Deferred = 0
 )
 # Script version = git blob hash of this file (same as `git hash-object <file>`), no git needed.
 # Matches the repo only when the file runs unmodified, i.e. as downloaded by the wrapper.
@@ -109,6 +122,77 @@ function Get-PnpUtilPublishedInfPath {
     return $null
 }
 
+$safeName   = $PrinterName -replace '[^\w\-]', '_'
+$taskName   = "ITFactory-PrinterSetup-$safeName"
+$dataDir    = Join-Path $env:ProgramData "ITFactory\PrinterSetup"
+$taskScript = Join-Path $dataDir "Setup-Printer.ps1"
+$logPath    = Join-Path $dataDir "$safeName.log"
+$failPath   = Join-Path $dataDir "$safeName.failures"
+$maxDeferredFailures = 3
+
+function Write-Log([string]$Message) {
+    Write-Host $Message
+    New-Item -ItemType Directory -Path $dataDir -Force | Out-Null
+    Add-Content -Path $logPath -Value "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') $Message"
+}
+
+# The Syncro module is only loaded when called from a wrapper, not in the scheduled task.
+function Send-Alert([string]$Body) {
+    if (Get-Command Rmm-Alert -ErrorAction SilentlyContinue) {
+        Rmm-Alert -Category "Printer Setup" -Body $Body
+    }
+}
+
+function Test-PrinterReachable([string]$Address, [int]$Port = 9100, [int]$TimeoutMs = 3000) {
+    $client = New-Object Net.Sockets.TcpClient
+    try {
+        $connect = $client.BeginConnect($Address, $Port, $null, $null)
+        if (-not $connect.AsyncWaitHandle.WaitOne($TimeoutMs)) { return $false }
+        $client.EndConnect($connect)
+        return $true
+    } catch {
+        return $false
+    } finally {
+        $client.Close()
+    }
+}
+
+function Register-DeferredSetup {
+    New-Item -ItemType Directory -Path $dataDir -Force | Out-Null
+    # The wrapper's copy lives in the SYSTEM temp dir; keep a stable copy for the task.
+    if ($PSCommandPath -ne $taskScript) {
+        Copy-Item -Path $PSCommandPath -Destination $taskScript -Force
+    }
+    $arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$taskScript`" -PrinterName `"$PrinterName`" -PrinterIP `"$PrinterIP`" -PortName `"$PortName`" -DriverUrl `"$DriverUrl`" -ColorMode $ColorMode -Deferred 1"
+    $action    = New-ScheduledTaskAction -Execute "powershell.exe" -Argument $arguments
+    # No -RepetitionDuration: repeats indefinitely (Windows 10 / Server 2016 and later).
+    $trigger   = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(15) -RepetitionInterval (New-TimeSpan -Minutes 15)
+    $principal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -LogonType ServiceAccount -RunLevel Highest
+    $settings  = New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Minutes 30) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -MultipleInstances IgnoreNew
+    Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Force -ErrorAction Stop | Out-Null
+    Remove-Item -Path $failPath -Force -ErrorAction SilentlyContinue
+}
+
+if (-not (Test-PrinterReachable $PrinterIP)) {
+    if ($Deferred -eq 1) { exit 0 }
+    try {
+        Register-DeferredSetup
+        Write-Log "Printer '$PrinterName' ($PrinterIP) does not answer on TCP 9100. Nothing installed; scheduled task '$taskName' installs it once the printer is reachable (checks every 15 minutes)."
+        exit 0
+    } catch {
+        Write-Log "ERROR: Printer '$PrinterName' ($PrinterIP) is unreachable and the deferred setup task could not be registered: $($_.Exception.Message)"
+        Send-Alert "Printer '$PrinterName' ($PrinterIP) is unreachable and the deferred setup task could not be registered on $env:COMPUTERNAME : $($_.Exception.Message)"
+        exit 1
+    }
+}
+
+# A queue's task and a Syncro run (or two queues' tasks) can fire at the same
+# time; they share the driver zip/extract paths, so install one at a time.
+$mutex = New-Object Threading.Mutex($false, "Global\ITFactory-PrinterSetup")
+$hasMutex = $false
+try { $hasMutex = $mutex.WaitOne([TimeSpan]::FromMinutes(30)) } catch [Threading.AbandonedMutexException] { $hasMutex = $true }
+
+$exitCode = 0
 try {
     Write-Host "=== Printer Setup: $PrinterName ==="
 
@@ -216,23 +300,41 @@ try {
     try {
         Set-PrintConfiguration -PrinterName $PrinterName -ColorMode $ColorMode -ErrorAction Stop
     } catch {
-        # Some drivers (e.g. HP UPD) query the physical device before applying
-        # this, so it can fail if the printer is offline/unreachable at setup
-        # time even though the queue itself was created fine. Don't fail the
-        # whole run over it - the queue falls back to the driver default
-        # (usually Color) until this is set successfully on a later run.
-        Write-Host "WARNING: Could not set color mode to $ColorMode (printer may be unreachable): $($_.Exception.Message)"
-        Rmm-Alert -Category "Printer Setup" -Body "Printer '$PrinterName' ($PrinterIP) was set up, but ColorMode '$ColorMode' could not be applied - printer was likely unreachable. Re-run the setup script once the printer is online."
+        # HP UPD queries the physical device before applying this. The
+        # reachability check above makes that unlikely to fail, but the
+        # printer can still drop off between check and here. Don't fail the
+        # whole run over it.
+        Write-Log "WARNING: Could not set color mode to ${ColorMode}: $($_.Exception.Message)"
+        Send-Alert "Printer '$PrinterName' ($PrinterIP) was set up, but ColorMode '$ColorMode' could not be applied. Re-run the setup script once the printer is online."
     }
 
     Write-Host "Cleaning up temp files..."
     Remove-Item -Path $ExtractDir -Recurse -Force -ErrorAction SilentlyContinue
     Remove-Item -Path $DriverZipPath -Force -ErrorAction SilentlyContinue
 
+    if (Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue) {
+        Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
+        Remove-Item -Path $failPath -Force -ErrorAction SilentlyContinue
+        Write-Log "Printer '$PrinterName' set up; deferred setup task '$taskName' removed."
+    }
+
     Write-Host "=== Done ==="
-    exit 0
 }
 catch {
-    Write-Host "ERROR: Failed to set up printer '$PrinterName': $($_.Exception.Message)"
-    exit 1
+    Write-Log "ERROR: Failed to set up printer '$PrinterName': $($_.Exception.Message)"
+    $exitCode = 1
+    if ($Deferred -eq 1) {
+        $failures = 1 + [int](Get-Content -Path $failPath -ErrorAction SilentlyContinue)
+        if ($failures -ge $maxDeferredFailures) {
+            Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
+            Remove-Item -Path $failPath -Force -ErrorAction SilentlyContinue
+            Write-Log "Giving up after $failures failed attempts; task '$taskName' removed. Re-run the Syncro script to retry."
+        } else {
+            Set-Content -Path $failPath -Value $failures
+        }
+    }
 }
+finally {
+    if ($hasMutex) { $mutex.ReleaseMutex() }
+}
+exit $exitCode
