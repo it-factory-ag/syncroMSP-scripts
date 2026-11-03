@@ -32,7 +32,7 @@ device configuration at install time, and a queue installed while the printer
 is unreachable ends up monochrome-only. If it doesn't answer, the script
 installs nothing, copies itself to C:\ProgramData\ITFactory\PrinterSetup\ and
 registers the scheduled task "ITFactory-PrinterSetup-<queue>" (SYSTEM, every
-15 minutes). The task re-runs this script with -Deferred 1: still unreachable
+hour). The task re-runs this script with -Deferred 1: still unreachable
 -> exits silently; reachable -> installs and unregisters itself. After 3
 failed installs on a reachable printer it gives up (see <queue>.log in that
 folder). The Syncro run exits 0 in that case, the queue is just pending.
@@ -166,7 +166,7 @@ function Register-DeferredSetup {
     $arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$taskScript`" -PrinterName `"$PrinterName`" -PrinterIP `"$PrinterIP`" -PortName `"$PortName`" -DriverUrl `"$DriverUrl`" -ColorMode $ColorMode -Deferred 1"
     $action    = New-ScheduledTaskAction -Execute "powershell.exe" -Argument $arguments
     # No -RepetitionDuration: repeats indefinitely (Windows 10 / Server 2016 and later).
-    $trigger   = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(15) -RepetitionInterval (New-TimeSpan -Minutes 15)
+    $trigger   = New-ScheduledTaskTrigger -Once -At (Get-Date).AddHours(1) -RepetitionInterval (New-TimeSpan -Hours 1)
     $principal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -LogonType ServiceAccount -RunLevel Highest
     $settings  = New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Minutes 30) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -MultipleInstances IgnoreNew
     Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Force -ErrorAction Stop | Out-Null
@@ -177,7 +177,7 @@ if (-not (Test-PrinterReachable $PrinterIP)) {
     if ($Deferred -eq 1) { exit 0 }
     try {
         Register-DeferredSetup
-        Write-Log "Printer '$PrinterName' ($PrinterIP) does not answer on TCP 9100. Nothing installed; scheduled task '$taskName' installs it once the printer is reachable (checks every 15 minutes)."
+        Write-Log "Printer '$PrinterName' ($PrinterIP) does not answer on TCP 9100. Nothing installed; scheduled task '$taskName' installs it once the printer is reachable (checks every hour)."
         exit 0
     } catch {
         Write-Log "ERROR: Printer '$PrinterName' ($PrinterIP) is unreachable and the deferred setup task could not be registered: $($_.Exception.Message)"
