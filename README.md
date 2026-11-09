@@ -17,6 +17,7 @@ New scripts go into a topic folder: `identity/` (Entra ID, Windows Hello, sign-i
 | `health/device_health.ps1` | Collects health information: BIOS, OS version/build, VM, TPM, Secure Boot, Sure Start, Windows Update, BitLocker, Antivirus |
 | `health/rds-performance-diag/Debug-RdsPerformance.ps1` | Read-only performance diagnostic for terminal servers (RDS): sessions, memory/handle leaks, disk latency, printers, file server latency, event logs; stores a snapshot per run and prints the trend. Paste `syncro_wrapper_rds_performance_diag.ps1` into Syncro |
 | `health/syncro-agent-restart/Restart-SyncroLiveAgent.ps1` | Restarts `SyncroLive.Agent.Runner` once its handle count passes a threshold (handle leak in SyncroLive 1.0.76), via a decoupled one-time scheduled task; alerts only on failure. Paste `syncro_wrapper_syncro_live_restart.ps1` into Syncro |
+| `health/explorer-restart/Restart-ExplorerSessions.ps1` | Restarts `explorer.exe` in every user session of a terminal server without logging anyone off (resets shell extensions); alerts only if a session is left without Explorer. Paste `syncro_wrapper_explorer_restart.ps1` into Syncro |
 | `secure-boot/patch_secure_boot.ps1` | Triggers Windows Secure Boot cert update via registry + scheduled task |
 | `secure-boot/deactivate_sure_start.ps1` | Disables HP Sure Start via BCU (HP-only) |
 | `hardware/get_bios_info.ps1` | Diagnostic: prints detailed system, BIOS, Secure Boot, TPM, and event log info |
@@ -91,6 +92,16 @@ Workaround for a handle leak in `SyncroLive.Agent.Runner` 1.0.76.16392 (about 1'
 - The next run reads `result.json` and raises `Rmm-Alert` (category "SyncroLive Restart", exit 1) if the restart failed. It also alerts if the task could not be registered or is still registered after 30 minutes.
 
 Files under `C:\ProgramData\ITFactory\SyncroLiveRestart\`: `restart.log` (one line per run plus the task's lines, last 500 kept), `task.ps1`, `result.json` (deleted once reported). Local test: `Test-Local.ps1 -Force 1` with `Mock-SyncroModule.psm1` (only `Rmm-Alert` is mocked, the restart is real). Remove the script from the schedule once Syncro ships a fixed SyncroLive version.
+
+### `health/explorer-restart/Restart-ExplorerSessions.ps1`
+
+Nightly Explorer restart for terminal servers whose sessions get slower over the days (HBL-SRV02: a manual Explorer restart made Explorer, Office file dialogs and Foxit bearable again; users don't want to log off). Not run directly in Syncro: `syncro_wrapper_explorer_restart.ps1` is the thin wrapper to paste into **Scripting → Scripts**. Optional Script Variables `Users` (comma-separated user names without domain, empty = all sessions) and `WaitSeconds` (default 20). Run as SYSTEM, schedule nightly (e.g. 03:30, after the backup).
+
+- Per session (session 0 skipped) it kills all `explorer.exe` processes. Open Explorer windows close; other programs keep running.
+- Winlogon normally restarts the shell on its own. If no new `explorer.exe` appears within `WaitSeconds`, the script starts it as the session's user (`WTSQueryUserToken` + `CreateProcessAsUser`, not with the SYSTEM token).
+- A session left without `explorer.exe` (no taskbar) raises `Rmm-Alert` (category "Explorer Restart", exit 1); otherwise exit 0.
+
+Log: `C:\ProgramData\ITFactory\ExplorerRestart\restart.log` (one line per session with memory/handles before the restart, last 500 kept). Local test as SYSTEM: `Test-Local.ps1 -Users <name>` with `Mock-SyncroModule.psm1` (only `Rmm-Alert` is mocked, the restart is real).
 
 ---
 
