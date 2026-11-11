@@ -98,7 +98,7 @@ Files under `C:\ProgramData\ITFactory\SyncroLiveRestart\`: `restart.log` (one li
 Nightly Explorer restart for terminal servers whose sessions get slower over the days (HBL-SRV02: a manual Explorer restart made Explorer, Office file dialogs and Foxit bearable again; users don't want to log off). Not run directly in Syncro: `syncro_wrapper_explorer_restart.ps1` is the thin wrapper to paste into **Scripting → Scripts**. Optional Script Variables `Users` (comma-separated user names without domain, empty = all sessions) and `WaitSeconds` (default 20). Run as SYSTEM, schedule nightly (e.g. 03:30, after the backup).
 
 - Per session (session 0 skipped) it kills all `explorer.exe` processes. Open Explorer windows close; other programs keep running.
-- Winlogon normally restarts the shell on its own. If no new `explorer.exe` appears within `WaitSeconds`, the script starts it as the session's user (`WTSQueryUserToken` + `CreateProcessAsUser`, not with the SYSTEM token).
+- Winlogon restarts the shell on its own in connected sessions, not in disconnected ones (seen on HBL-SRV02). If no new `explorer.exe` appears within `WaitSeconds`, the script starts it as the session's user (`WTSQueryUserToken` + `CreateProcessAsUser`, not with the SYSTEM token).
 - A session left without `explorer.exe` (no taskbar) raises `Rmm-Alert` (category "Explorer Restart", exit 1); otherwise exit 0.
 
 Log: `C:\ProgramData\ITFactory\ExplorerRestart\restart.log` (one line per session with memory/handles before the restart, last 500 kept). Local test as SYSTEM: `Test-Local.ps1 -Users <name>` with `Mock-SyncroModule.psm1` (only `Rmm-Alert` is mocked, the restart is real).

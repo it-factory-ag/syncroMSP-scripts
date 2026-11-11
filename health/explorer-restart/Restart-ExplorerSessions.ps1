@@ -11,7 +11,8 @@ How (per session with an explorer.exe, session 0 skipped):
   1. Kills all explorer.exe processes of the session (shell plus separate
      folder window processes). Open Explorer windows close, nothing else does.
   2. Waits up to -WaitSeconds for Winlogon to restart the shell on its own
-     (AutoRestartShell).
+     (AutoRestartShell). Seen on HBL-SRV02: it does in connected sessions,
+     not in disconnected ones.
   3. If none comes, starts explorer.exe itself as the session's user
      (WTSQueryUserToken + CreateProcessAsUser, needs SYSTEM) and waits again.
      Not with the SYSTEM token: the shell would then run as SYSTEM.
