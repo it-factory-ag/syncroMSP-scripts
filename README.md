@@ -29,6 +29,7 @@ New scripts go into a topic folder: `identity/` (Entra ID, Windows Hello, sign-i
 | `maintenance/vpn_first_logon_profile_fix.ps1` | Sets local policy to fix failed first domain login over VPN: always wait for network at logon + disable GPO slow-link detection, then gpupdate + reboots the device |
 | `identity/set_windows_hello_for_business.ps1` | Disables (or re-enables) Windows Hello for Business via local policy, so Entra-joined devices stop forcing PIN + MFA registration after login; for tenants without Intune (Entra ID Free); optional Syncro variable `Action` (`Disable`/`Enable`) |
 | `identity/set_local_admin.ps1` | Adds (or removes) an Entra user to the local Administrators group of one Entra-joined device (`AzureAD\<UPN>`); for tenants without Intune; Syncro variables `UserPrincipalName` (required) and `Action` (`Add`/`Remove`) |
+| `identity/hybrid-join-repair/Repair-HybridJoin.ps1` | Checks Microsoft Entra hybrid join on a domain-joined device (prerequisite for Intune auto-enrollment); with `Action = Repair` removes the local `autoWorkplaceJoin = 0` blocker and starts the `Automatic-Device-Join` task, alerts if a GPO sets the blocker. Paste `syncro_wrapper_hybrid_join_repair.ps1` into Syncro |
 | `m365/set_outlook_autodiscover_fix.ps1` | Sets (or removes) the Outlook Autodiscover fix for the logged-in user: `ExcludeExplicitO365Endpoint` = 1 and `AlwaysUseMSOAuthForAutoDiscover` = 0 (HKCU); run as logged-in user; optional Syncro variable `Action` (`Apply`/`Remove`) |
 | `maintenance/remove_apps/` | Removes unwanted Win32 and AppX apps based on a per-customer app list |
 | `maintenance/file-access-audit/Setup-FileAccessAudit.ps1` | One-time setup on a file server: sets SACL, grows the Security log, deploys a daily collector + weekly report script, registers scheduled tasks — file-level access statistics, no per-user monitoring; optional weekly upload to a Seafile upload link |
@@ -136,6 +137,19 @@ Makes an Entra user local admin on **this one** Entra-joined device. Without Int
 - `Action` = `Remove`: same with `/delete`
 
 Runs as SYSTEM, paste directly into SyncroMSP (no wrapper), no `param()` block. Exits 1 if the device is not Entra-joined (`dsregcmd /status`). The group name is resolved from the well-known SID `S-1-5-32-544`, so it works on German (`Administratoren`) and English Windows. Uses `net localgroup` instead of `Add-LocalGroupMember`, because the LocalAccounts cmdlets fail on groups containing unresolvable Entra accounts. Idempotent: "already a member" (1378) and "not a member" (1377) count as success. Error 1332 (account not resolvable) usually means a typo in the UPN; if the UPN is right, let the user sign in once and rerun. Takes effect at the user's next sign-in. Raises an `Rmm-Alert` (category "Local Admin") only on failure.
+
+### `identity/hybrid-join-repair/Repair-HybridJoin.ps1`
+
+Checks whether a domain-joined device is Microsoft Entra hybrid joined and enrolled in Intune, and repairs the join if it is blocked. Paste `syncro_wrapper_hybrid_join_repair.ps1` into Syncro; it downloads the current script from this repo on every run.
+
+Background: user sync via Entra Connect does not bring the devices along. Hybrid join needs the scheduled task `\Microsoft\Windows\Workplace Join\Automatic-Device-Join`; a local policy `HKLM\SOFTWARE\Policies\Microsoft\Windows\WorkplaceJoin` `autoWorkplaceJoin = 0` (left over from an image or an old script) blocks the join and keeps that task disabled. Intune auto-enrollment via GPO only follows once the device is hybrid joined. Guide (German): [Windows-PC nachträglich in Hybrid Join und Intune bringen](https://wiki.prod.itfactory.ch/doc/anleitung-windows-pc-nachtraglich-in-hybrid-join-und-intune-bringen-EdQhX8b8Ie).
+
+Syncro variable `Action` (dropdown, default `Check`):
+
+- `Check`: read-only. Prints DomainJoined, AzureAdJoined, Intune enrollment, `autoWorkplaceJoin` and the join task state. Exits 1 if the device is domain-joined but not hybrid joined, so affected devices stand out in a bulk run.
+- `Repair`: only acts if the device is not hybrid joined. Removes `autoWorkplaceJoin`, runs `gpupdate /target:computer /force` and raises an `Rmm-Alert` (category `Hybrid Join`) if a GPO writes the value back, then enables and starts `Automatic-Device-Join` and checks the join again after 60 seconds. A join that is still pending usually completes after the next Entra Connect sync (about 30 min) or a restart plus user sign-in; run `Check` again later.
+
+Runs as SYSTEM. No asset fields. Devices that are not domain-joined exit 0 with a note.
 
 ---
 
