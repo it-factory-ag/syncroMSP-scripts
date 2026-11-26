@@ -18,6 +18,7 @@ New scripts go into a topic folder: `identity/` (Entra ID, Windows Hello, sign-i
 | `health/rds-performance-diag/Debug-RdsPerformance.ps1` | Read-only performance diagnostic for terminal servers (RDS): sessions, memory/handle leaks, disk latency, printers, file server latency, event logs; stores a snapshot per run and prints the trend. Paste `syncro_wrapper_rds_performance_diag.ps1` into Syncro |
 | `health/syncro-agent-restart/Restart-SyncroLiveAgent.ps1` | Restarts `SyncroLive.Agent.Runner` once its handle count passes a threshold (handle leak in SyncroLive 1.0.76), via a decoupled one-time scheduled task; alerts only on failure. Paste `syncro_wrapper_syncro_live_restart.ps1` into Syncro |
 | `health/explorer-restart/Restart-ExplorerSessions.ps1` | Restarts `explorer.exe` in every user session of a terminal server without logging anyone off (resets shell extensions); alerts only if a session is left without Explorer. Paste `syncro_wrapper_explorer_restart.ps1` into Syncro |
+| `health/set_explorer_quick_access.ps1` | Lets Explorer open "This PC" and hides recent files / frequent folders in Quick access for every user profile (incl. Default profile), so Explorer and Open/Save dialogs don't wait for file server entries; optional Syncro variable `Action` (`Apply`/`Remove`) |
 | `secure-boot/patch_secure_boot.ps1` | Triggers Windows Secure Boot cert update via registry + scheduled task |
 | `secure-boot/deactivate_sure_start.ps1` | Disables HP Sure Start via BCU (HP-only) |
 | `hardware/get_bios_info.ps1` | Diagnostic: prints detailed system, BIOS, Secure Boot, TPM, and event log info |
@@ -93,6 +94,15 @@ Workaround for a handle leak in `SyncroLive.Agent.Runner` 1.0.76.16392 (about 1'
 - The next run reads `result.json` and raises `Rmm-Alert` (category "SyncroLive Restart", exit 1) if the restart failed. It also alerts if the task could not be registered or is still registered after 30 minutes.
 
 Files under `C:\ProgramData\ITFactory\SyncroLiveRestart\`: `restart.log` (one line per run plus the task's lines, last 500 kept), `task.ps1`, `result.json` (deleted once reported). Local test: `Test-Local.ps1 -Force 1` with `Mock-SyncroModule.psm1` (only `Rmm-Alert` is mocked, the restart is real). Remove the script from the schedule once Syncro ships a fixed SyncroLive version.
+
+### `health/set_explorer_quick_access.ps1`
+
+Quick access lists the 20 most recent files and frequent folders, mostly on file server shares. Every time Explorer or an Open/Save dialog (Office, Foxit) shows it, Windows checks each entry and loads icons/thumbnails over the network, which made Explorer take seconds to open on HBL-SRV02. Pinned Quick access folders stay.
+
+- `Action` = `Apply` (default): per user `Explorer\Advanced\LaunchTo` = 1 (open "This PC"), `Explorer\ShowRecent` = 0, `Explorer\ShowFrequent` = 0 (HKCU)
+- `Action` = `Remove`: removes the three values, Windows default applies again
+
+Written for every user profile on the device (logged-on users directly in `HKEY_USERS`, others by mounting `NTUSER.DAT`) and the Default profile, so new users get it too. With a domain, the same values can also be set via GPO (User Configuration › Preferences › Registry). New Explorer windows pick it up; an already open Explorer may only show it after an Explorer restart or the next logon. Runs as SYSTEM, paste directly into SyncroMSP (no wrapper), also runs from a SYSTEM remote shell. Raises `Rmm-Alert` (category "Explorer Quick Access") only if a profile fails.
 
 ### `health/explorer-restart/Restart-ExplorerSessions.ps1`
 
