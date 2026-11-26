@@ -18,6 +18,7 @@ New scripts go into a topic folder: `identity/` (Entra ID, Windows Hello, sign-i
 | `health/rds-performance-diag/Debug-RdsPerformance.ps1` | Read-only performance diagnostic for terminal servers (RDS): sessions, memory/handle leaks, disk latency, printers, file server latency, event logs; stores a snapshot per run and prints the trend. Paste `syncro_wrapper_rds_performance_diag.ps1` into Syncro |
 | `health/syncro-agent-restart/Restart-SyncroLiveAgent.ps1` | Restarts `SyncroLive.Agent.Runner` once its handle count passes a threshold (handle leak in SyncroLive 1.0.76), via a decoupled one-time scheduled task; alerts only on failure. Paste `syncro_wrapper_syncro_live_restart.ps1` into Syncro |
 | `health/explorer-restart/Restart-ExplorerSessions.ps1` | Restarts `explorer.exe` in every user session of a terminal server without logging anyone off (resets shell extensions); alerts only if a session is left without Explorer. Paste `syncro_wrapper_explorer_restart.ps1` into Syncro |
+| `health/explorer-jumplist-reset/Reset-ExplorerJumpList.ps1` | Resets the Explorer jump list (`5f7b5f1e01b83767.automaticDestinations-ms`) of every user whose list exceeds a size threshold; an oversized list made Quick access take 4-7 s on HBL-SRV02. Restarts Explorer only in affected sessions, logs sizes per user for the trend. Paste `syncro_wrapper_explorer_jumplist_reset.ps1` into Syncro |
 | `health/set_explorer_quick_access.ps1` | Lets Explorer open "This PC" and hides recent files / frequent folders in Quick access for every user profile (incl. Default profile), so Explorer and Open/Save dialogs don't wait for file server entries; optional Syncro variable `Action` (`Apply`/`Remove`) |
 | `secure-boot/patch_secure_boot.ps1` | Triggers Windows Secure Boot cert update via registry + scheduled task |
 | `secure-boot/deactivate_sure_start.ps1` | Disables HP Sure Start via BCU (HP-only) |
@@ -103,6 +104,17 @@ Quick access lists the 20 most recent files and frequent folders, mostly on file
 - `Action` = `Remove`: removes the three values, Windows default applies again
 
 Written for every user profile on the device (logged-on users directly in `HKEY_USERS`, others by mounting `NTUSER.DAT`) and the Default profile, so new users get it too. With a domain, the same values can also be set via GPO (User Configuration › Preferences › Registry). New Explorer windows pick it up; an already open Explorer may only show it after an Explorer restart or the next logon. Runs as SYSTEM, paste directly into SyncroMSP (no wrapper), also runs from a SYSTEM remote shell. Raises `Rmm-Alert` (category "Explorer Quick Access") only if a profile fails.
+
+### `health/explorer-jumplist-reset/Reset-ExplorerJumpList.ps1`
+
+Fix for Quick access taking seconds to open on terminal servers. `%APPDATA%\Microsoft\Windows\Recent\AutomaticDestinations\5f7b5f1e01b83767.automaticDestinations-ms` is Explorer's jump list: every opened folder ends up in it, Explorer builds "Frequent folders" and its taskbar jump list from it, and Windows never trims it. On HBL-SRV02 it was 1.4-2.7 MB per user; Process Monitor showed Explorer reading it ~20'000 times per Quick access load (4-7 s). Deleting it fixed it. Not run directly in Syncro: `syncro_wrapper_explorer_jumplist_reset.ps1` is the thin wrapper to paste into **Scripting → Scripts**. Optional Script Variables `ThresholdKB` (default 1024), `Users` (comma-separated, empty = all) and `WaitSeconds` (default 20). Run as SYSTEM, schedule nightly (e.g. 01:30).
+
+- Logs the size of every user's jump list (trend in the log).
+- Above the threshold: kills `explorer.exe` in that user's session(s) first (Explorer would write the list back from memory), copies the file to `.bak`, deletes it, then waits for Explorer to come back (Winlogon, or started as the user in disconnected sessions, never as SYSTEM). Users without a session are reset directly.
+- Pinned Quick access folders stay (they are in `f01b4d95cf55d32a…`). "Frequent folders" and Explorer's taskbar jump list history start empty. Other sessions and programs are not touched.
+- `Rmm-Alert` (category "Explorer Jump List", exit 1) only if a reset fails or a session is left without `explorer.exe`.
+
+Log: `C:\ProgramData\ITFactory\ExplorerJumpList\reset.log` (last 1000 lines). Also runs from a SYSTEM remote shell without the Syncro module (then without `Rmm-Alert`).
 
 ### `health/explorer-restart/Restart-ExplorerSessions.ps1`
 
